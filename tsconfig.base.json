@@ -1,0 +1,23 @@
+{
+  "//": "Shared TS settings. Per-package tsconfig.json files extend this and add their own outDir / include.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+
+    "//paths": "Cross-package alias so apps/api can `import { LLMClient } from '@work-sim/shared'` without a publish step.",
+    "baseUrl": ".",
+    "paths": {
+      "@work-sim/shared": ["packages/shared/src/index.ts"],
+      "@work-sim/shared/*": ["packages/shared/src/*"]
+    }
+  }
+}

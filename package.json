@@ -1,0 +1,12 @@
+{
+  "//": "Root package.json. NOT using npm/pnpm workspaces — cross-package imports use a tsconfig path alias (@work-sim/shared). Switch to workspaces when the package count grows past two.",
+  "name": "work-sim",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "//dev": "Convenience: run the API in watch mode. The web app is started separately from apps/web (not yet scaffolded).",
+    "dev": "pnpm --dir apps/api dev",
+    "//db:push": "Apply the Drizzle schema to the local SQLite file. Disposable; delete *.db to reset.",
+    "db:push": "pnpm --dir apps/api db:push"
+  }
+}

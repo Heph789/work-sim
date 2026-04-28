@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "//declaration": "Emit .d.ts so apps that consume this package get types even when the alias is replaced with a real publish."
+    ,
+    "declaration": true
+  },
+  "include": ["src/**/*"]
+}

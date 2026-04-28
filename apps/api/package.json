@@ -1,0 +1,48 @@
+{
+  "//": "Fastify HTTP server + in-process simulation engine. Imports @work-sim/shared via the tsconfig path alias (no publish step).",
+  "name": "@work-sim/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "//dev": "Watch-mode dev server. tsx loads the path-aliased shared package directly from source.",
+    "dev": "tsx watch src/index.ts",
+    "//build": "Type-check + emit. Production startup is `node dist/index.js`.",
+    "build": "tsc -p tsconfig.json",
+    "//db:push": "Apply the Drizzle schema to the local SQLite file. Disposable; delete *.db to reset between schema iterations.",
+    "db:push": "drizzle-kit push"
+  },
+  "dependencies": {
+    "// DEPENDENCY fastify": "HTTP server.",
+    "fastify": "^4.27.0",
+    "// DEPENDENCY @fastify/cors": "Allow the Vite dev origin (localhost:5173) to call the API.",
+    "@fastify/cors": "^9.0.1",
+    "// DEPENDENCY drizzle-orm": "Type-safe SQL builder + sqlite adapter.",
+    "drizzle-orm": "^0.30.0",
+    "// DEPENDENCY better-sqlite3": "Synchronous SQLite driver — safe for single-process use.",
+    "better-sqlite3": "^11.0.0",
+    "// DEPENDENCY openai": "Official OpenAI SDK; uses chat.completions.parse for strict structured outputs.",
+    "openai": "^4.55.0",
+    "// DEPENDENCY zod": "Re-imported here for route-handler convenience; the canonical version is in shared.",
+    "zod": "^3.23.0",
+    "// DEPENDENCY uuid": "v4 ids for runs and rounds.",
+    "uuid": "^9.0.1",
+    "// DEPENDENCY seedrandom": "Deterministic RNG for situation_tag selection.",
+    "seedrandom": "^3.0.5",
+    "@work-sim/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "// DEPENDENCY tsx": "Watch-mode TS runner for dev.",
+    "tsx": "^4.16.0",
+    "// DEPENDENCY drizzle-kit": "Schema diff + push CLI.",
+    "drizzle-kit": "^0.22.0",
+    "// DEPENDENCY typescript": "",
+    "typescript": "^5.5.0",
+    "// DEPENDENCY @types/better-sqlite3": "",
+    "@types/better-sqlite3": "^7.6.0",
+    "// DEPENDENCY @types/uuid": "",
+    "@types/uuid": "^9.0.0",
+    "// DEPENDENCY @types/seedrandom": "",
+    "@types/seedrandom": "^3.0.8"
+  }
+}
