@@ -5,6 +5,7 @@
 
 import type { LLMClient } from '@work-sim/shared';
 import { OpenAIClient } from './openai-client.js';
+import { maybeWrapWithLogging } from './logger.js';
 
 /**
  * Build the singleton LLMClient. Called once from index.ts at boot; the
@@ -17,20 +18,25 @@ import { OpenAIClient } from './openai-client.js';
 export function createLLMClient(): LLMClient {
   const provider = process.env.LLM_PROVIDER ?? 'openai';
 
+  let client: LLMClient;
   switch (provider) {
     case 'openai': {
       const key = process.env.OPENAI_API_KEY;
       if (!key) throw new Error('OPENAI_API_KEY is required when LLM_PROVIDER=openai');
-      return new OpenAIClient(key);
+      client = new OpenAIClient(key);
+      break;
     }
 
     // case 'anthropic': {
     //   const key = process.env.ANTHROPIC_API_KEY;
     //   if (!key) throw new Error('ANTHROPIC_API_KEY required when LLM_PROVIDER=anthropic');
-    //   return new AnthropicClient(key);
+    //   client = new AnthropicClient(key);
+    //   break;
     // }
 
     default:
       throw new Error(`Unknown LLM_PROVIDER: ${provider}`);
   }
+
+  return maybeWrapWithLogging(client);
 }

@@ -38,6 +38,16 @@ curl http://localhost:4000/healthz
 # → {"ok":true}
 ```
 
+## Debug: Log LLM prompts and responses
+
+To see full prompts and responses to/from the LLM (stderr, JSON-formatted):
+
+```bash
+LOG_LLM=1 pnpm dev
+```
+
+Logs all LLM calls with request (messages, model, temperature, etc.) and response (completion or structured object). Useful for understanding how situation tags / morale / prompt context shape the model's behavior.
+
 ## Test
 
 ```bash
