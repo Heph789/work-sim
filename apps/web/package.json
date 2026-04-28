@@ -10,8 +10,8 @@
     "start": "next start",
     "lint": "next lint"
   },
+  "//deps": "DEPENDENCY: next, react, react-dom, recharts, zod — all new for the frontend scaffold.",
   "dependencies": {
-    "//deps": "DEPENDENCY: next, react, react-dom, recharts, zod — all new for the frontend scaffold.",
     "@work-sim/shared": "file:../../packages/shared",
     "next": "^15.0.0",
     "react": "^19.0.0",

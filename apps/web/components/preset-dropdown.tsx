@@ -5,8 +5,8 @@
 // - Default selection mirrors the current form values: if `value` exactly
 //   matches one of the presets, that preset's key is selected; otherwise the
 //   dropdown shows "(custom)".
-// - Picking a preset calls `onSelect(preset)` with the full AgentPreset →
-//   AgentForm copies all fields onto the form via its `onChange`.
+// - Picking a preset calls `onSelect(preset)` with the full AgentProfile-shaped
+//   subset → AgentForm copies all fields onto the form via its `onChange`.
 
 'use client';
 
@@ -22,27 +22,57 @@ export interface PresetDropdownProps {
   onSelect: (preset: AgentProfile) => void;
 }
 
-/**
- * Render a <select> over presets-of-this-role. Implementation detail: we
- * compare every text field plus baseline_output to detect an exact match.
- * Any divergence → display "(custom)" with no key selected.
- */
-export function PresetDropdown(props: PresetDropdownProps) {
-  const { role, currentValue, onSelect } = props;
-  const options = PRESETS.filter((p) => p.role_in_sim === role);
-  // TODO: derive currently-selected key by deep-equal-ing currentValue against each preset's profile fields.
-  // TODO: render <select> with options + a leading "(custom)" sentinel.
-  // TODO: on change, find the matching preset and call onSelect with its AgentProfile-shaped subset.
-  void options;
-  void currentValue;
-  void onSelect;
-  return null;
-}
+const CUSTOM_VALUE = '__custom__';
 
 /** Strip the preset wrapper fields (key, display_name) → AgentProfile. */
-// TODO: implement presetToProfile(preset: AgentPreset): AgentProfile.
-function _presetToProfile(_preset: AgentPreset): AgentProfile {
-  // TODO: return { role_in_sim, name, role_label, personality, values, baseline_output }.
-  throw new Error('not implemented');
+export function presetToProfile(preset: AgentPreset): AgentProfile {
+  return {
+    role_in_sim: preset.role_in_sim,
+    name: preset.name,
+    role_label: preset.role_label,
+    personality: preset.personality,
+    values: preset.values,
+    baseline_output: preset.baseline_output,
+  };
 }
-void _presetToProfile;
+
+/** True when every AgentProfile field on `value` matches the preset. */
+function matchesPreset(value: AgentProfile, preset: AgentPreset): boolean {
+  return (
+    value.role_in_sim === preset.role_in_sim &&
+    value.name === preset.name &&
+    value.role_label === preset.role_label &&
+    value.personality === preset.personality &&
+    value.values === preset.values &&
+    value.baseline_output === preset.baseline_output
+  );
+}
+
+export function PresetDropdown({ role, currentValue, onSelect }: PresetDropdownProps) {
+  const options = PRESETS.filter((p) => p.role_in_sim === role);
+  const matched = options.find((p) => matchesPreset(currentValue, p));
+  const selectedKey = matched?.key ?? CUSTOM_VALUE;
+
+  return (
+    <label className="block">
+      <span className="label">Load preset</span>
+      <select
+        className="input"
+        value={selectedKey}
+        onChange={(e) => {
+          const key = e.target.value;
+          if (key === CUSTOM_VALUE) return;
+          const preset = options.find((p) => p.key === key);
+          if (preset) onSelect(presetToProfile(preset));
+        }}
+      >
+        <option value={CUSTOM_VALUE}>(custom)</option>
+        {options.map((p) => (
+          <option key={p.key} value={p.key}>
+            {p.display_name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}

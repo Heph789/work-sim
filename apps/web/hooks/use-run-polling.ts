@@ -11,38 +11,55 @@
 
 import { useEffect, useState } from 'react';
 import type { RunDetail } from '@work-sim/shared';
-import { getRun } from '@/lib/api';
+import { getRun, RunNotFoundError } from '@/lib/api';
 
-/** Polling cadence while the run is in a non-terminal state. */
 const ACTIVE_INTERVAL_MS = 2000;
-/** Backoff cadence after a transient error. */
 const ERROR_BACKOFF_MS = 5000;
 
+export interface UseRunPollingResult {
+  /** Latest detail snapshot, or null until the first successful fetch. */
+  run: RunDetail | null;
+  /** True once the API has returned 404 for this id; polling stops. */
+  notFound: boolean;
+  /** Most recent transient error; cleared on the next successful fetch. */
+  error: Error | null;
+}
+
 /**
- * Subscribe to live run state. Returns `null` until the first fetch resolves,
- * then the latest RunDetail every poll. Polling stops automatically on
- * terminal status; the hook also tears down cleanly on unmount.
+ * Subscribe to live run state. Polling stops automatically on terminal status
+ * (completed | failed | cancelled) or 404; the hook also tears down cleanly on
+ * unmount.
  */
-export function useRunPolling(id: string): RunDetail | null {
+export function useRunPolling(id: string): UseRunPollingResult {
   const [run, setRun] = useState<RunDetail | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+
+    setRun(null);
+    setNotFound(false);
+    setError(null);
 
     async function poll() {
       try {
         const r = await getRun(id);
         if (cancelled) return;
         setRun(r);
+        setError(null);
         if (r.status === 'pending' || r.status === 'running') {
           timer = setTimeout(poll, ACTIVE_INTERVAL_MS);
         }
         // Terminal statuses (completed | failed | cancelled): stop scheduling.
-      } catch {
+      } catch (err) {
         if (cancelled) return;
-        // TODO: distinguish RunNotFoundError → set a "not found" state instead
-        // of looping forever. For other errors, back off and retry.
+        if (err instanceof RunNotFoundError) {
+          setNotFound(true);
+          return; // stop polling — the row is gone for good
+        }
+        setError(err instanceof Error ? err : new Error('run fetch failed'));
         timer = setTimeout(poll, ERROR_BACKOFF_MS);
       }
     }
@@ -55,5 +72,5 @@ export function useRunPolling(id: string): RunDetail | null {
     };
   }, [id]);
 
-  return run;
+  return { run, notFound, error };
 }

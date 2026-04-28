@@ -5,18 +5,54 @@
 'use client';
 
 import type { RoundView } from '@work-sim/shared';
-// DEPENDENCY: recharts — declared in package.json. Imported lazily-friendly:
-// `LineChart`, `Line`, `XAxis`, `YAxis`, `CartesianGrid`, `Tooltip`, `ResponsiveContainer`.
-// TODO: import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 
 export interface MoraleChartProps {
   rounds: RoundView[];
 }
 
 export function MoraleChart({ rounds }: MoraleChartProps) {
-  // TODO: project rounds → [{ round: round_index, morale }].
-  // TODO: render <ResponsiveContainer><LineChart data={...}>...</LineChart></ResponsiveContainer>.
-  // TODO: y-axis fixed to [0, 100]; show grid.
-  void rounds;
-  return null;
+  const data = rounds.map((r) => ({ round: r.round_index, morale: r.morale }));
+
+  return (
+    <div className="bg-white border rounded p-4">
+      <h3 className="text-sm font-medium text-gray-700 mb-2">Worker morale</h3>
+      <div className="h-48">
+        {data.length === 0 ? (
+          <div className="h-full flex items-center justify-center text-sm text-gray-400">
+            no rounds yet
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: -12 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="round" stroke="#6b7280" fontSize={12} />
+              <YAxis domain={[0, 100]} stroke="#6b7280" fontSize={12} />
+              <Tooltip
+                contentStyle={{ fontSize: 12 }}
+                formatter={(v: number) => [v, 'morale']}
+                labelFormatter={(l: number) => `round ${l}`}
+              />
+              <Line
+                type="monotone"
+                dataKey="morale"
+                stroke="#2563eb"
+                strokeWidth={2}
+                dot={{ r: 3 }}
+                isAnimationActive={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  );
 }

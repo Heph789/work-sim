@@ -6,16 +6,16 @@
 // - Header: agent names + arrow, current round / total, target / sold / pace,
 //   progress bar, status pill.
 // - Left column: transcript of completed rounds + "generating round N..." while
-//   running. Auto-scroll to bottom on new round, unless the user has scrolled up.
+//   running.
 // - Right column: morale curve + paper-sold-per-round bar chart (Recharts).
 // - On completion: ✓ "Hit target: X/Y" or ✗ "Missed target: X/Y" banner.
 // - On failure: red banner "Run failed at round N." + error_message.
-//   "Start a new run with the same config" button (deferred if non-trivial).
 
 'use client';
 
 import { use } from 'react';
 import Link from 'next/link';
+import type { AgentProfile } from '@work-sim/shared';
 import { useRunPolling } from '@/hooks/use-run-polling';
 import { ProgressBar } from '@/components/progress-bar';
 import { StatusPill } from '@/components/status-pill';
@@ -23,55 +23,135 @@ import { Transcript } from '@/components/transcript';
 import { MoraleChart } from '@/components/morale-chart';
 import { PaperChart } from '@/components/paper-chart';
 
-/**
- * Next 15 passes route params as a Promise to async page components; for client
- * components, React's `use()` hook unwraps it.
- */
 interface PageProps {
   params: Promise<{ id: string }>;
 }
 
 export default function RunDetailPage({ params }: PageProps) {
   const { id } = use(params);
-  const run = useRunPolling(id);
+  const { run, notFound, error } = useRunPolling(id);
 
-  // TODO: render loading state while run === null.
-  // TODO: extract manager/worker names from run.config.agents for the header.
-  // TODO: compute on_pace_description from rounds_completed / paper_total / target.
+  if (notFound) {
+    return (
+      <>
+        <Link href="/" className="text-sm text-gray-600 hover:underline">◀ Back to runs</Link>
+        <div className="mt-6 bg-white border rounded p-8 text-center text-gray-700">
+          Run <code className="text-sm">{id}</code> not found.
+        </div>
+      </>
+    );
+  }
+
+  if (!run) {
+    return (
+      <>
+        <Link href="/" className="text-sm text-gray-600 hover:underline">◀ Back to runs</Link>
+        <div className="mt-6 text-sm text-gray-500">Loading run…</div>
+        {error && (
+          <div className="mt-3 text-sm text-red-700">
+            Failed to load: {error.message}
+          </div>
+        )}
+      </>
+    );
+  }
+
+  const manager = run.config.agents.find((a: AgentProfile) => a.role_in_sim === 'manager');
+  const worker = run.config.agents.find((a: AgentProfile) => a.role_in_sim === 'worker');
+  const managerName = manager?.name ?? 'Manager';
+  const workerName = worker?.name ?? 'Worker';
+
+  const pace = describePace({
+    roundsCompleted: run.rounds_completed,
+    roundsTotal: run.rounds_total,
+    paperTotal: run.paper_total,
+    targetPaper: run.target_paper,
+  });
+
+  const isCompleted = run.status === 'completed';
+  const hitTarget = isCompleted && run.paper_total >= run.target_paper;
 
   return (
     <>
       <Link href="/" className="text-sm text-gray-600 hover:underline">◀ Back to runs</Link>
 
-      {/* Header card: names → progress → status pill */}
-      <section className="mt-4 mb-6 bg-white border rounded p-4">
-        {/* TODO: <h2>{managerName} → {workerName}</h2> */}
-        {/* TODO: round X of Y · target N · sold M · {pace} */}
-        {/* TODO: <ProgressBar value={paper_total} max={target_paper} /> */}
-        {/* TODO: <StatusPill status={run.status} /> */}
-        {void ProgressBar}
-        {void StatusPill}
+      <section className="mt-4 mb-6 bg-white border rounded p-5 space-y-3">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <h2 className="text-xl font-semibold">
+            {managerName} <span className="text-gray-400">→</span> {workerName}
+          </h2>
+          <StatusPill status={run.status} />
+        </div>
+
+        <div className="text-sm text-gray-600">
+          Round {Math.min(run.rounds_completed + (run.status === 'running' ? 1 : 0), run.rounds_total)} of{' '}
+          {run.rounds_total} · target {run.target_paper} · sold {run.paper_total} · {pace}
+        </div>
+
+        <ProgressBar
+          value={run.paper_total}
+          max={run.target_paper}
+          label={`${run.paper_total} / ${run.target_paper}`}
+        />
       </section>
 
-      {/* Failure banner — only when status === 'failed'. */}
-      {/* TODO: red banner with error_message + failed_at_round. */}
+      {run.status === 'failed' && (
+        <div className="mb-6 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+          <div className="font-medium">
+            Run failed{run.failed_at_round !== null ? ` at round ${run.failed_at_round}` : ''}.
+          </div>
+          {run.error_message && (
+            <div className="mt-1 text-red-800 whitespace-pre-wrap">{run.error_message}</div>
+          )}
+        </div>
+      )}
 
-      {/* Completion banner — only when status === 'completed'. */}
-      {/* TODO: green ✓ if paper_total >= target_paper, red ✗ otherwise. */}
+      {isCompleted && (
+        <div
+          className={`mb-6 rounded border px-4 py-3 text-sm ${
+            hitTarget
+              ? 'border-green-200 bg-green-50 text-green-900'
+              : 'border-red-200 bg-red-50 text-red-900'
+          }`}
+        >
+          <span className="font-medium">
+            {hitTarget ? '✓ Hit target' : '✗ Missed target'}: {run.paper_total} / {run.target_paper}
+          </span>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
-          {/* TODO: <Transcript rounds={run.rounds} status={run.status} expectedRounds={run.rounds_total} /> */}
-          {void Transcript}
+          <Transcript
+            rounds={run.rounds}
+            status={run.status}
+            expectedRounds={run.rounds_total}
+            managerName={managerName}
+            workerName={workerName}
+          />
         </div>
         <div className="space-y-6">
-          {/* TODO: <MoraleChart rounds={run.rounds} /> */}
-          {/* TODO: <PaperChart rounds={run.rounds} /> */}
-          {void MoraleChart}
-          {void PaperChart}
+          <MoraleChart rounds={run.rounds} />
+          <PaperChart rounds={run.rounds} />
         </div>
       </div>
-      {void run}
     </>
   );
+}
+
+/** Quick textual pace summary based on completed rounds vs target. */
+function describePace(args: {
+  roundsCompleted: number;
+  roundsTotal: number;
+  paperTotal: number;
+  targetPaper: number;
+}): string {
+  const { roundsCompleted, roundsTotal, paperTotal, targetPaper } = args;
+  if (roundsCompleted === 0) return 'just started';
+  if (roundsCompleted >= roundsTotal) {
+    return paperTotal >= targetPaper ? 'target hit' : 'fell short';
+  }
+  const projected = Math.round((paperTotal / roundsCompleted) * roundsTotal);
+  if (projected >= targetPaper) return `on pace (projected ${projected})`;
+  return `behind pace (projected ${projected})`;
 }

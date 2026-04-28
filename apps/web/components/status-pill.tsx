@@ -7,7 +7,6 @@ export interface StatusPillProps {
   status: RunStatus;
 }
 
-/** Tailwind classes per status. Keep in sync with RunStatus enum. */
 const STATUS_STYLES: Record<RunStatus, string> = {
   pending: 'bg-gray-100 text-gray-700',
   running: 'bg-blue-100 text-blue-800',
@@ -17,8 +16,11 @@ const STATUS_STYLES: Record<RunStatus, string> = {
 };
 
 export function StatusPill({ status }: StatusPillProps) {
-  // TODO: render <span className={`text-xs px-2 py-1 rounded-full ${STATUS_STYLES[status]}`}>{status}</span>.
-  void STATUS_STYLES;
-  void status;
-  return null;
+  return (
+    <span
+      className={`inline-block text-xs font-medium px-2 py-1 rounded-full ${STATUS_STYLES[status]}`}
+    >
+      {status}
+    </span>
+  );
 }

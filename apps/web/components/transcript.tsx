@@ -20,33 +20,64 @@ export interface TranscriptProps {
   status: RunStatus;
   /** rounds_total — used so we don't render the placeholder past the last round. */
   expectedRounds: number;
+  managerName?: string;
+  workerName?: string;
 }
 
-export function Transcript({ rounds, status, expectedRounds }: TranscriptProps) {
+/** Pixels-from-bottom we treat as "still pinned". Generous so a click-drag of a few px doesn't unpin. */
+const PIN_THRESHOLD_PX = 32;
+
+export function Transcript({
+  rounds,
+  status,
+  expectedRounds,
+  managerName,
+  workerName,
+}: TranscriptProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const wasPinnedRef = useRef<boolean>(true);
 
-  // TODO: on rounds.length change, if wasPinnedRef.current is true,
-  // scrollRef.current.scrollTop = scrollRef.current.scrollHeight.
   useEffect(() => {
-    void scrollRef;
-    void wasPinnedRef;
+    const el = scrollRef.current;
+    if (!el) return;
+    if (wasPinnedRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [rounds.length]);
 
-  // TODO: onScroll handler updates wasPinnedRef based on whether the user is
-  // near the bottom (e.g., scrollHeight - scrollTop - clientHeight < 32px).
+  function onScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    wasPinnedRef.current = distanceFromBottom < PIN_THRESHOLD_PX;
+  }
 
   const isActive = status === 'pending' || status === 'running';
   const showPlaceholder = isActive && rounds.length < expectedRounds;
+  const isEmpty = rounds.length === 0 && !showPlaceholder;
 
   return (
-    <div className="bg-white border rounded p-4 max-h-[70vh] overflow-y-auto" ref={scrollRef}>
-      {/* TODO: render rounds.map(r => <RoundBlock key={r.round_index} round={r} />). */}
-      {void RoundBlock}
-      {void rounds}
+    <div
+      ref={scrollRef}
+      onScroll={onScroll}
+      className="bg-white border rounded p-4 max-h-[70vh] overflow-y-auto"
+    >
+      {isEmpty && (
+        <div className="text-sm text-gray-500 italic">No rounds yet.</div>
+      )}
+      {rounds.map((r) => (
+        <RoundBlock
+          key={r.round_index}
+          round={r}
+          managerName={managerName}
+          workerName={workerName}
+        />
+      ))}
       {showPlaceholder && (
-        // TODO: render a muted "⠋ generating round N..." line where N = rounds.length + 1.
-        <div className="text-sm text-gray-500 italic">generating…</div>
+        <div className="text-sm text-gray-500 italic mt-3 flex items-center gap-2">
+          <span className="inline-block w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+          generating round {rounds.length + 1}…
+        </div>
       )}
     </div>
   );

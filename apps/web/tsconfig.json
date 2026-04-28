@@ -8,6 +8,7 @@
     "incremental": true,
     "allowJs": true,
     "plugins": [{ "name": "next" }],
+    "baseUrl": ".",
     "paths": {
       "@work-sim/shared": ["../../packages/shared/src/index.ts"],
       "@work-sim/shared/*": ["../../packages/shared/src/*"],

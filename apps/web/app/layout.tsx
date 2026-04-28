@@ -6,7 +6,8 @@
 // static markup and the children prop, so there's no need to ship it as a
 // client component.
 
-import type { Metadata, ReactNode } from 'react';
+import type { ReactNode } from 'react';
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import './globals.css';
 

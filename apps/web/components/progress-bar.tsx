@@ -9,11 +9,19 @@ export interface ProgressBarProps {
 }
 
 export function ProgressBar({ value, max, label }: ProgressBarProps) {
-  // TODO: clamp pct = min(100, round(100 * value / max)).
-  // TODO: render outer <div> with bg-gray-200 + inner <div> with width: pct% and bg-blue-600.
-  // TODO: append `label ?? `${pct}%`` on the right.
-  void value;
-  void max;
-  void label;
-  return null;
+  const safeMax = max > 0 ? max : 1;
+  const pct = Math.min(100, Math.max(0, Math.round((100 * value) / safeMax)));
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex-1 h-2 rounded-full bg-gray-200 overflow-hidden">
+        <div
+          className="h-full bg-blue-600 transition-[width] duration-300"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className="text-xs text-gray-600 tabular-nums w-16 text-right">
+        {label ?? `${pct}%`}
+      </span>
+    </div>
+  );
 }
