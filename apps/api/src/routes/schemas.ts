@@ -23,7 +23,8 @@ export const AgentProfileSchema = z.object({
   role_label: z.string().min(1).max(80),
   personality: z.string().min(1).max(2000),
   values: z.string().min(1).max(2000),
-  baseline_output: z.number().int().min(1).max(100),
+  // Managers use 0 (unused in v1 per locked-decisions.md #6); workers must be ≥1.
+  baseline_output: z.number().int().min(0).max(100),
 });
 
 /**
@@ -43,6 +44,13 @@ export const CreateRunRequestSchema = z
       b.agents.filter((a) => a.role_in_sim === 'manager').length === 1 &&
       b.agents.filter((a) => a.role_in_sim === 'worker').length === 1,
     { message: 'agents must contain exactly one manager and one worker' },
+  )
+  .refine(
+    (b) => {
+      const worker = b.agents.find((a) => a.role_in_sim === 'worker');
+      return worker !== undefined && worker.baseline_output >= 1;
+    },
+    { message: 'worker baseline_output must be >= 1 (it scales paper_sold)' },
   );
 
 /** Query string for GET /runs pagination. */
