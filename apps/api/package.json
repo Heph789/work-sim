@@ -1,48 +1,37 @@
 {
-  "//": "Fastify HTTP server + in-process simulation engine. Imports @work-sim/shared via the tsconfig path alias (no publish step).",
+  "//": "Fastify HTTP server + in-process simulation engine. Imports @work-sim/shared via the tsconfig path alias (no publish step). Cross-package linkage: a `file:` link to packages/shared so node_modules resolves it; the tsconfig alias remains the source of truth for type-checking.",
   "name": "@work-sim/api",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "//dev": "Watch-mode dev server. tsx loads the path-aliased shared package directly from source.",
-    "dev": "tsx watch src/index.ts",
-    "//build": "Type-check + emit. Production startup is `node dist/index.js`.",
+    "dev": "tsx watch --env-file=../../.env src/index.ts",
     "build": "tsc -p tsconfig.json",
-    "//db:push": "Apply the Drizzle schema to the local SQLite file. Disposable; delete *.db to reset between schema iterations.",
+    "test": "vitest run",
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
-    "// DEPENDENCY fastify": "HTTP server.",
-    "fastify": "^4.27.0",
-    "// DEPENDENCY @fastify/cors": "Allow the Vite dev origin (localhost:5173) to call the API.",
     "@fastify/cors": "^9.0.1",
-    "// DEPENDENCY drizzle-orm": "Type-safe SQL builder + sqlite adapter.",
-    "drizzle-orm": "^0.30.0",
-    "// DEPENDENCY better-sqlite3": "Synchronous SQLite driver — safe for single-process use.",
+    "@work-sim/shared": "file:../../packages/shared",
     "better-sqlite3": "^11.0.0",
-    "// DEPENDENCY openai": "Official OpenAI SDK; uses chat.completions.parse for strict structured outputs.",
+    "drizzle-orm": "^0.45.2",
+    "fastify": "^4.27.0",
     "openai": "^4.55.0",
-    "// DEPENDENCY zod": "Re-imported here for route-handler convenience; the canonical version is in shared.",
-    "zod": "^3.23.0",
-    "// DEPENDENCY uuid": "v4 ids for runs and rounds.",
-    "uuid": "^9.0.1",
-    "// DEPENDENCY seedrandom": "Deterministic RNG for situation_tag selection.",
     "seedrandom": "^3.0.5",
-    "@work-sim/shared": "workspace:*"
+    "uuid": "^9.0.1",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
-    "// DEPENDENCY tsx": "Watch-mode TS runner for dev.",
-    "tsx": "^4.16.0",
-    "// DEPENDENCY drizzle-kit": "Schema diff + push CLI.",
-    "drizzle-kit": "^0.22.0",
-    "// DEPENDENCY typescript": "",
-    "typescript": "^5.5.0",
-    "// DEPENDENCY @types/better-sqlite3": "",
     "@types/better-sqlite3": "^7.6.0",
-    "// DEPENDENCY @types/uuid": "",
+    "@types/node": "^20.12.0",
+    "@types/seedrandom": "^3.0.8",
     "@types/uuid": "^9.0.0",
-    "// DEPENDENCY @types/seedrandom": "",
-    "@types/seedrandom": "^3.0.8"
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0",
+    "vitest": "^1.6.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["better-sqlite3", "esbuild"]
   }
 }

@@ -10,7 +10,10 @@
 
 import type { Message } from '@work-sim/shared';
 import type { AgentProfile, RoundView } from '@work-sim/shared';
-import type { SituationTagId } from '@work-sim/shared';
+import { getSituationTag, type SituationTagId } from '@work-sim/shared';
+
+import { paceDescription } from './scoring.js';
+import { formatTranscript } from './transcript.js';
 
 /** Bumped whenever either prompt skeleton changes. Captured in config_json. */
 export const PROMPT_TEMPLATE_VERSION = 'v1';
@@ -38,17 +41,48 @@ export function buildManagerPrompt(args: {
   roundsCompleted: number;
   roundsTotal: number;
 }): Message[] {
-  // TODO: assemble {system, user} pair per the template in simulation-engine.md.
-  //   const situation = getSituationTag(args.situationTag);
-  //   const transcript = formatTranscript({...}) || 'No prior interactions yet.';
-  //   const pace = paceDescription({...});
-  //   const roundsRemaining = args.roundsTotal - args.roundsCompleted;
-  //   return [
-  //     { role: 'system', content: managerSystemTemplate(args.manager, args.worker) },
-  //     { role: 'user',   content: managerUserTemplate({...}) },
-  //   ];
-  void args;
-  throw new Error('buildManagerPrompt: not implemented');
+  const { manager, worker, priorRounds, situationTag, target, paperTotal, roundsCompleted, roundsTotal } = args;
+  const situation = getSituationTag(situationTag);
+  const transcript =
+    formatTranscript({ priorRounds, managerName: manager.name, workerName: worker.name }) ||
+    'No prior interactions yet.';
+  const pace = paceDescription({ paperTotal, targetPaper: target, roundsCompleted, roundsTotal });
+  const roundsRemaining = roundsTotal - roundsCompleted;
+
+  const system = `You are ${manager.name}, the ${manager.role_label} at a paper company.
+
+Your personality:
+${manager.personality}
+
+What you value at work:
+${manager.values}
+
+You are speaking with your direct report, ${worker.name}, who works as a ${worker.role_label}.
+
+Rules of engagement:
+- Speak naturally, in 1–3 short sentences.
+- Do NOT narrate your own actions ("I lean back in my chair…"). Just say what you say.
+- Do NOT reference round numbers, simulations, or any meta-commentary.
+- Do NOT explicitly mention the sales target as a number unless it would be in character to do so.
+- Stay in character.`;
+
+  const user = `SITUATION TODAY: ${situation.description}
+
+YOUR PRIVATE CONTEXT (do not mention these numbers explicitly unless natural):
+- Sales target by end of period: ${target} units of paper.
+- Current total sold: ${paperTotal} units.
+- Rounds remaining: ${roundsRemaining}.
+- Pace status: ${pace}
+
+RECENT INTERACTIONS WITH ${worker.name.toUpperCase()}:
+${transcript}
+
+Now, what do you say to ${worker.name}?`;
+
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ];
 }
 
 /**
@@ -71,7 +105,43 @@ export function buildWorkerPrompt(args: {
    */
   selfPerception: string | null;
 }): Message[] {
-  // TODO: assemble {system, user} pair per simulation-engine.md (Worker turn section).
-  void args;
-  throw new Error('buildWorkerPrompt: not implemented');
+  const { manager, worker, priorRounds, situationTag, managerMessage, selfPerception } = args;
+  const situation = getSituationTag(situationTag);
+  const transcript =
+    formatTranscript({ priorRounds, managerName: manager.name, workerName: worker.name }) ||
+    'No prior interactions yet.';
+  const sp = selfPerception ?? INITIAL_SELF_PERCEPTION(manager.name);
+
+  const system = `You are ${worker.name}, a ${worker.role_label} at a paper company.
+
+Your personality:
+${worker.personality}
+
+What you value at work:
+${worker.values}
+
+You report to ${manager.name}, the ${manager.role_label}.
+
+You will respond with a JSON object containing:
+- "message": Your reply to ${manager.name}, in 1–3 short sentences. Speak naturally. No narration of physical actions. Stay in character.
+- "updated_self_perception": A 1–2 sentence update to your private internal monologue based on this exchange. This is your honest read of how things are going for you at work right now. ${manager.name} cannot see this.
+- "morale": An integer 0–100 representing your engagement and motivation right now. 50 is neutral. Below 30 means demoralized. Above 70 means energized. Be honest given your personality, values, and how this exchange landed for you.`;
+
+  const user = `SITUATION TODAY: ${situation.description}
+
+YOUR CURRENT INTERNAL STATE (private):
+"${sp}"
+
+RECENT INTERACTIONS WITH ${manager.name.toUpperCase()}:
+${transcript}
+
+${manager.name} just said to you:
+"${managerMessage}"
+
+Respond now.`;
+
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ];
 }

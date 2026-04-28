@@ -30,26 +30,21 @@ export class OpenAIClient implements LLMClient {
    *               class — the factory reads env and passes it explicitly.
    */
   constructor(apiKey: string) {
-    // TODO: this.client = new OpenAI({ apiKey });
-    void apiKey;
-    this.client = undefined as unknown as OpenAI;
+    this.client = new OpenAI({ apiKey });
   }
 
   /** Free-text completion. Used by the manager turn. */
   async complete(messages: Message[], opts: LLMCallOptions): Promise<string> {
-    // TODO:
-    //   const res = await withRetry(() => this.client.chat.completions.create({
-    //     model: opts.model,
-    //     messages,
-    //     temperature: opts.temperature,
-    //     top_p: opts.topP,
-    //     max_tokens: opts.maxTokens,
-    //   }));
-    //   return res.choices[0]?.message?.content ?? '';
-    void messages;
-    void opts;
-    void withRetry;
-    throw new Error('OpenAIClient.complete: not implemented');
+    const res = await withRetry(() =>
+      this.client.chat.completions.create({
+        model: opts.model,
+        messages,
+        temperature: opts.temperature,
+        top_p: opts.topP,
+        max_tokens: opts.maxTokens,
+      }),
+    );
+    return res.choices[0]?.message?.content ?? '';
   }
 
   /**
@@ -65,23 +60,25 @@ export class OpenAIClient implements LLMClient {
     schemaName: string,
     opts: LLMCallOptions,
   ): Promise<T> {
-    // TODO:
-    //   const res = await withRetry(() => this.client.chat.completions.parse({
-    //     model: opts.model,
-    //     messages,
-    //     temperature: opts.temperature,
-    //     top_p: opts.topP,
-    //     response_format: zodResponseFormat(schema, schemaName),
-    //   }));
-    //   const parsed = res.choices[0]?.message?.parsed;
-    //   if (parsed == null) throw new MalformedStructuredOutputError('parsed missing');
-    //   return schema.parse(parsed);
-    void messages;
-    void schema;
-    void schemaName;
-    void opts;
-    void zodResponseFormat;
-    void MalformedStructuredOutputError;
-    throw new Error('OpenAIClient.completeStructured: not implemented');
+    return withRetry(async () => {
+      const res = await this.client.beta.chat.completions.parse({
+        model: opts.model,
+        messages,
+        temperature: opts.temperature,
+        top_p: opts.topP,
+        response_format: zodResponseFormat(schema, schemaName),
+      });
+      const parsed = res.choices[0]?.message?.parsed;
+      if (parsed == null) {
+        throw new MalformedStructuredOutputError('parsed response missing from OpenAI reply');
+      }
+      const reparsed = schema.safeParse(parsed);
+      if (!reparsed.success) {
+        throw new MalformedStructuredOutputError(
+          `zod re-validation failed: ${reparsed.error.message}`,
+        );
+      }
+      return reparsed.data;
+    });
   }
 }

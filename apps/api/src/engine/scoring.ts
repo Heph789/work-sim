@@ -17,10 +17,7 @@
  * implies.
  */
 export function paperSold(baselineOutput: number, morale: number): number {
-  // TODO: return Math.round(baselineOutput * morale / 50);
-  void baselineOutput;
-  void morale;
-  throw new Error('paperSold: not implemented');
+  return Math.round((baselineOutput * morale) / 50);
 }
 
 /**
@@ -42,14 +39,11 @@ export function paceDescription(args: {
   roundsCompleted: number;
   roundsTotal: number;
 }): string {
-  // TODO:
-  //   if (args.roundsCompleted === 0) return 'just starting out';
-  //   const expected = (args.targetPaper * args.roundsCompleted) / args.roundsTotal;
-  //   const ratio = args.paperTotal / expected;
-  //   if (ratio >= 1.15) return 'ahead of pace';
-  //   if (ratio >= 0.95) return 'on pace';
-  //   if (ratio >= 0.75) return 'slightly behind pace';
-  //   return 'well behind pace';
-  void args;
-  throw new Error('paceDescription: not implemented');
+  if (args.roundsCompleted === 0) return 'just starting out';
+  const expected = (args.targetPaper * args.roundsCompleted) / args.roundsTotal;
+  const ratio = args.paperTotal / expected;
+  if (ratio >= 1.15) return 'ahead of pace';
+  if (ratio >= 0.95) return 'on pace';
+  if (ratio >= 0.75) return 'slightly behind pace';
+  return 'well behind pace';
 }

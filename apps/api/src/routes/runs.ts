@@ -7,6 +7,8 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { v4 as uuid } from 'uuid';
 
+import type { RunConfig } from '@work-sim/shared';
+
 import type { AppDb } from '../db/index.js';
 import type { Runner } from '../engine/runner.js';
 import { SIM_ENGINE_VERSION } from '../engine/runner.js';
@@ -44,76 +46,63 @@ export const runsRoutes: FastifyPluginAsync<RunsRouteDeps> = async (app, opts) =
   // ── POST /runs ────────────────────────────────────────────────────────────
   // Creates the run, snapshots config, fires off the runner, returns 201 { id }.
   app.post('/runs', async (req, reply) => {
-    // TODO:
-    //   const body = CreateRunRequestSchema.parse(req.body);
-    //   const id = uuid();
-    //   const config: RunConfig = {
-    //     agents: body.agents,
-    //     model: body.model ?? DEFAULT_MODEL,
-    //     temperature: body.temperature ?? DEFAULT_TEMPERATURE,
-    //     top_p: DEFAULT_TOP_P,
-    //     prompt_template_version: PROMPT_TEMPLATE_VERSION,
-    //     situation_tag_seed: Math.floor(Math.random() * 2 ** 31),
-    //     sim_engine_version: SIM_ENGINE_VERSION,
-    //   };
-    //   await db.runs.insert({
-    //     id,
-    //     createdAt: Date.now(),
-    //     status: 'pending',
-    //     roundsTotal: body.rounds_total,
-    //     roundsCompleted: 0,
-    //     targetPaper: body.target_paper,
-    //     paperTotal: 0,
-    //     experimentId: null,
-    //     configJson: JSON.stringify(config),
-    //     errorMessage: null,
-    //     failedAtRound: null,
-    //   });
-    //   reply.code(201);
-    //   // Fire-and-forget; runner persists its own failures.
-    //   setImmediate(() => runner.run(id).catch((err) => app.log.error({ err, runId: id }, 'runner failure')));
-    //   return { id };
-    void req;
-    void reply;
-    void db;
-    void runner;
-    void uuid;
-    void CreateRunRequestSchema;
-    void DEFAULT_MODEL;
-    void DEFAULT_TEMPERATURE;
-    void DEFAULT_TOP_P;
-    void PROMPT_TEMPLATE_VERSION;
-    void SIM_ENGINE_VERSION;
-    throw new Error('POST /runs: not implemented');
+    const parsed = CreateRunRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      reply.code(400);
+      return { error: 'invalid request', details: parsed.error.flatten() };
+    }
+    const body = parsed.data;
+    const id = uuid();
+    const config: RunConfig = {
+      agents: body.agents,
+      model: body.model ?? DEFAULT_MODEL,
+      temperature: body.temperature ?? DEFAULT_TEMPERATURE,
+      top_p: DEFAULT_TOP_P,
+      prompt_template_version: PROMPT_TEMPLATE_VERSION,
+      situation_tag_seed: Math.floor(Math.random() * 2 ** 31),
+      sim_engine_version: SIM_ENGINE_VERSION,
+    };
+    await db.runs.insert({
+      id,
+      createdAt: Date.now(),
+      status: 'pending',
+      roundsTotal: body.rounds_total,
+      roundsCompleted: 0,
+      targetPaper: body.target_paper,
+      paperTotal: 0,
+      experimentId: null,
+      configJson: JSON.stringify(config),
+      errorMessage: null,
+      failedAtRound: null,
+    });
+    reply.code(201);
+    setImmediate(() =>
+      runner.run(id).catch((err) => app.log.error({ err, runId: id }, 'runner failure')),
+    );
+    return { id };
   });
 
   // ── GET /runs ─────────────────────────────────────────────────────────────
   // Lists runs newest first. Trivial cursor pagination on created_at.
   app.get('/runs', async (req) => {
-    // TODO:
-    //   const { limit, cursor } = ListRunsQuerySchema.parse(req.query);
-    //   const rows = await db.runs.list({ limit, cursor: cursor ?? null });
-    //   const items = rows.map(toRunListItem);
-    //   const next_cursor = rows.length === limit ? rows[rows.length - 1].createdAt : null;
-    //   return { runs: items, next_cursor };
-    void req;
-    void ListRunsQuerySchema;
-    void toRunListItem;
-    throw new Error('GET /runs: not implemented');
+    const { limit, cursor } = ListRunsQuerySchema.parse(req.query);
+    const rows = await db.runs.list({ limit, cursor: cursor ?? null });
+    const items = rows.map(toRunListItem);
+    const next_cursor =
+      rows.length === limit ? rows[rows.length - 1]!.createdAt : null;
+    return { runs: items, next_cursor };
   });
 
   // ── GET /runs/:id ─────────────────────────────────────────────────────────
   // Polled by the run-detail screen every 2s while the run is non-terminal.
   app.get<{ Params: { id: string } }>('/runs/:id', async (req, reply) => {
-    // TODO:
-    //   const run = await db.runs.byId(req.params.id);
-    //   if (!run) { reply.code(404); return { error: 'run not found' }; }
-    //   const rounds = await db.rounds.byRunId(run.id);
-    //   return toRunDetail({ run, rounds });
-    void req;
-    void reply;
-    void toRunDetail;
-    throw new Error('GET /runs/:id: not implemented');
+    const run = await db.runs.byId(req.params.id);
+    if (!run) {
+      reply.code(404);
+      return { error: 'run not found' };
+    }
+    const rounds = await db.rounds.byRunId(run.id);
+    return toRunDetail({ run, rounds });
   });
 
   // ── Reserved endpoints (slot exists; not implemented in v1) ──────────────

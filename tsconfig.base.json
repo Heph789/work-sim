@@ -13,7 +13,6 @@
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true,
 
-    "//paths": "Cross-package alias so apps/api can `import { LLMClient } from '@work-sim/shared'` without a publish step.",
     "baseUrl": ".",
     "paths": {
       "@work-sim/shared": ["packages/shared/src/index.ts"],

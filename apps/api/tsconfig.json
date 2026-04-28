@@ -2,9 +2,10 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src",
-    "// types": "Node-side server; pull in node typings.",
-    "types": ["node"]
+    "rootDirs": ["src", "../../packages/shared/src"],
+    "types": ["node"],
+    "noEmit": true
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "../../packages/shared/src/**/*"],
+  "exclude": ["src/**/*.test.ts", "../../packages/shared/src/**/*.test.ts"]
 }

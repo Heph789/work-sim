@@ -25,10 +25,10 @@ export function formatTranscript(args: {
   managerName: string;
   workerName: string;
 }): string {
-  // TODO:
-  //   return args.priorRounds.map(r =>
-  //     `${args.managerName}: ${r.manager_message}\n${args.workerName}: ${r.worker_message}`
-  //   ).join('\n\n');
-  void args;
-  throw new Error('formatTranscript: not implemented');
+  return args.priorRounds
+    .map(
+      (r) =>
+        `${args.managerName}: ${r.manager_message}\n${args.workerName}: ${r.worker_message}`,
+    )
+    .join('\n\n');
 }

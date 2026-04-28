@@ -8,6 +8,8 @@
 import { z } from 'zod';
 
 import type {
+  AgentProfile,
+  RunConfig,
   RunDetail,
   RunListItem,
   RoundView,
@@ -81,16 +83,44 @@ export interface RoundRowLike {
 
 /** Project a runs row → list-item shape. Pulls names out of config_json. */
 export function toRunListItem(row: RunRowLike): RunListItem {
-  // TODO: parse configJson once, find manager/worker by role_in_sim, set hit_target.
-  void row;
-  throw new Error('toRunListItem: not implemented');
+  const config = JSON.parse(row.configJson) as RunConfig;
+  const manager = config.agents.find((a: AgentProfile) => a.role_in_sim === 'manager');
+  const worker = config.agents.find((a: AgentProfile) => a.role_in_sim === 'worker');
+  return {
+    id: row.id,
+    created_at: row.createdAt,
+    status: row.status,
+    rounds_total: row.roundsTotal,
+    rounds_completed: row.roundsCompleted,
+    target_paper: row.targetPaper,
+    paper_total: row.paperTotal,
+    hit_target: row.status === 'completed' ? row.paperTotal >= row.targetPaper : null,
+    manager_name: manager?.name ?? '',
+    worker_name: worker?.name ?? '',
+  };
 }
 
 /** Project a runs row + its rounds → full detail shape. */
 export function toRunDetail(args: { run: RunRowLike; rounds: RoundRowLike[] }): RunDetail {
-  // TODO: parse configJson; strip situation_tag_seed; map rounds → RoundView[].
-  void args;
-  throw new Error('toRunDetail: not implemented');
+  const { run, rounds } = args;
+  const config = JSON.parse(run.configJson) as RunConfig;
+  // situation_tag_seed is intentionally stripped — internal detail.
+  const { situation_tag_seed: _seed, ...publicConfig } = config;
+  void _seed;
+  return {
+    id: run.id,
+    created_at: run.createdAt,
+    status: run.status,
+    rounds_total: run.roundsTotal,
+    rounds_completed: run.roundsCompleted,
+    target_paper: run.targetPaper,
+    paper_total: run.paperTotal,
+    experiment_id: run.experimentId,
+    config: publicConfig,
+    rounds: rounds.map(toRoundView),
+    error_message: run.errorMessage,
+    failed_at_round: run.failedAtRound,
+  };
 }
 
 /** Project a single round row → wire-shaped RoundView. */

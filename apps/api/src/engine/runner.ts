@@ -16,6 +16,7 @@ import {
   type AgentProfile,
   type RoundView,
   type RunConfig,
+  type WorkerResponse,
 } from '@work-sim/shared';
 import { pickTag } from '@work-sim/shared';
 
@@ -47,41 +48,89 @@ export class Runner {
    * is just a safety net for unexpected programmer errors.
    */
   async run(runId: string): Promise<void> {
-    // High-level shape (per simulation-engine.md):
-    //
-    //   1. Load the run row + parse config_json.
-    //   2. Identify manager/worker snapshots from config.agents.
-    //   3. UPDATE runs SET status='running'.
-    //   4. For round_index in 1..rounds_total:
-    //        a. Re-read runs.status; exit cleanly if not 'running' (cooperative cancel).
-    //        b. tag = pickTag(seed, round_index).
-    //        c. managerMsg = await llm.complete(buildManagerPrompt(...)).
-    //        d. workerRes  = await llm.completeStructured(buildWorkerPrompt(...),
-    //                                                     WorkerResponseSchema, ...).
-    //        e. paperSoldThisRound = paperSold(worker.baseline_output, workerRes.morale).
-    //        f. db.transaction:
-    //             rounds.insert({...})
-    //             runs.bumpProgress(runId, round_index, paperSoldThisRound).
-    //        g. Update local state: lastSelfPerception = workerRes.updated_self_perception;
-    //                               priorRounds.push({...}).
-    //   5. UPDATE runs SET status='completed'.
-    //
-    //   On any throw inside the loop:
-    //     UPDATE runs SET status='failed', error_message=<msg>,
-    //                     failed_at_round=<current round_index>.
+    const run = await this.db.runs.byId(runId);
+    if (!run) throw new Error(`run ${runId} not found`);
 
-    // TODO: implement.
-    void runId;
-    void uuid;
-    void this.llm;
-    void this.db;
-    void WorkerResponseSchema;
-    void pickTag;
-    void buildManagerPrompt;
-    void buildWorkerPrompt;
-    void paperSold;
-    void SIM_ENGINE_VERSION;
-    throw new Error('Runner.run: not implemented');
+    const config = JSON.parse(run.configJson) as RunConfig;
+    const { manager, worker } = this.extractAgents(config);
+
+    await this.db.runs.setStatus(runId, 'running');
+
+    let lastSelfPerception: string | null = null;
+    const priorRounds: Pick<RoundView, 'manager_message' | 'worker_message'>[] = [];
+    let currentRound = 0;
+
+    try {
+      for (let i = 1; i <= run.roundsTotal; i++) {
+        currentRound = i;
+        const fresh = await this.db.runs.byId(runId);
+        if (!fresh || fresh.status !== 'running') return;
+
+        const tag = pickTag(config.situation_tag_seed, i);
+
+        const managerMsg = await this.llm.complete(
+          buildManagerPrompt({
+            manager,
+            worker,
+            priorRounds,
+            situationTag: tag,
+            target: fresh.targetPaper,
+            paperTotal: fresh.paperTotal,
+            roundsCompleted: fresh.roundsCompleted,
+            roundsTotal: fresh.roundsTotal,
+          }),
+          { model: config.model, temperature: config.temperature, topP: config.top_p },
+        );
+
+        const workerRes: WorkerResponse = await this.llm.completeStructured(
+          buildWorkerPrompt({
+            manager,
+            worker,
+            priorRounds,
+            situationTag: tag,
+            managerMessage: managerMsg,
+            selfPerception: lastSelfPerception,
+          }),
+          WorkerResponseSchema,
+          'WorkerResponse',
+          { model: config.model, temperature: config.temperature, topP: config.top_p },
+        );
+
+        const paperSoldThisRound = paperSold(worker.baseline_output, workerRes.morale);
+
+        // Two back-to-back sync writes via better-sqlite3. We don't wrap in a
+        // transaction because better-sqlite3 transactions can't host async
+        // callbacks; for a single-process prototype the only data risk is a
+        // process kill between these two calls, which would leave a round row
+        // without its progress bump — acceptable, and easy to reconcile by
+        // querying max(round_index) on boot if we ever care.
+        await this.db.rounds.insert({
+          id: uuid(),
+          runId,
+          roundIndex: i,
+          situationTag: tag,
+          managerMessage: managerMsg,
+          workerMessage: workerRes.message,
+          workerSelfPerception: workerRes.updated_self_perception,
+          morale: workerRes.morale,
+          paperSold: paperSoldThisRound,
+          createdAt: Date.now(),
+        });
+        await this.db.runs.bumpProgress(runId, i, paperSoldThisRound);
+
+        lastSelfPerception = workerRes.updated_self_perception;
+        priorRounds.push(
+          this.toPriorRound({ managerMessage: managerMsg, workerMessage: workerRes.message }),
+        );
+      }
+
+      await this.db.runs.setStatus(runId, 'completed');
+    } catch (err) {
+      await this.db.runs.setFailed(runId, {
+        errorMessage: err instanceof Error ? err.message : String(err),
+        failedAtRound: currentRound,
+      });
+    }
   }
 
   /**
@@ -91,13 +140,12 @@ export class Runner {
    * mid-loop if the invariant is violated).
    */
   private extractAgents(config: RunConfig): { manager: AgentProfile; worker: AgentProfile } {
-    // TODO:
-    //   const manager = config.agents.find(a => a.role_in_sim === 'manager');
-    //   const worker  = config.agents.find(a => a.role_in_sim === 'worker');
-    //   if (!manager || !worker) throw new Error('config requires one manager and one worker');
-    //   return { manager, worker };
-    void config;
-    throw new Error('Runner.extractAgents: not implemented');
+    const manager = config.agents.find((a) => a.role_in_sim === 'manager');
+    const worker = config.agents.find((a) => a.role_in_sim === 'worker');
+    if (!manager || !worker) {
+      throw new Error('config requires exactly one manager and one worker');
+    }
+    return { manager, worker };
   }
 
   /**

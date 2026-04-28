@@ -22,22 +22,18 @@ const BASE_DELAY_MS = 500;
  * it as `runs.error_message`.
  */
 export async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
-  // TODO: implement attempt loop.
-  //   let lastErr: unknown;
-  //   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-  //     try { return await fn(); }
-  //     catch (err) {
-  //       lastErr = err;
-  //       if (!isTransient(err) || attempt === MAX_ATTEMPTS) throw err;
-  //       const delay = BASE_DELAY_MS * 2 ** (attempt - 1) + Math.random() * 250;
-  //       await new Promise((r) => setTimeout(r, delay));
-  //     }
-  //   }
-  //   throw lastErr;
-  void fn;
-  void MAX_ATTEMPTS;
-  void BASE_DELAY_MS;
-  throw new Error('withRetry: not implemented');
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!isTransient(err) || attempt === MAX_ATTEMPTS) throw err;
+      const delay = BASE_DELAY_MS * 2 ** (attempt - 1) + Math.random() * 250;
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
 }
 
 /**
@@ -45,11 +41,11 @@ export async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
  * its behavior; the retry loop is the only runtime caller.
  */
 export function isTransient(err: unknown): boolean {
-  // TODO:
-  //   if (err instanceof MalformedStructuredOutputError) return true;
-  //   const status = (err as { status?: number })?.status;
-  //   return status === 429 || (status !== undefined && status >= 500);
-  void err;
-  void MalformedStructuredOutputError;
-  throw new Error('isTransient: not implemented');
+  if (err instanceof MalformedStructuredOutputError) return true;
+  const status = (err as { status?: number })?.status;
+  if (status === 429) return true;
+  if (status !== undefined && status >= 500) return true;
+  const code = (err as { code?: string })?.code;
+  if (code === 'ETIMEDOUT' || code === 'ECONNRESET' || code === 'ECONNREFUSED') return true;
+  return false;
 }
