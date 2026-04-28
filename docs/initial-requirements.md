@@ -1,0 +1,7 @@
+High level: I want to create a work simulator where each person is represented by an AI agent, inspired by the system at ../generative_agents. I want to make a prototype of this rapidly in a few days, so we should try to pare down requirements for the initial prototype to something small but still interesting.
+
+We should have a data store (thinking psqlite, but open to alternatives), backend (node/typescript is fine, unless you think there are ), and web app frontend to interact with the simulation.
+
+The sim should be of a paper company. The company consists of workers and managers. Any of the agents should be able to be a manager. Each agent should have some work conditions that they value, as well as personality styles. For example, some agents may value "autonomy", and have a "micromanagemnt" personality style. The simulation should go for a user-determined number of rounds, where each round the agents interact with their teammates and manager. The history of interaction should affect a productivity score, which ultimately should determine the worker's output. All workers are measured on the same output, which is paper sold. So after each round (and after the total simulation), the user should know how much paper was sold.
+
+To just flesh out the proof of concept, we should start by just getting a two-person simulation working end to end. One worker, one manager.
