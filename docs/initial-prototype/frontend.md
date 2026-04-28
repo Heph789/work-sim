@@ -1,22 +1,30 @@
 # Frontend
 
-React + Vite + Tailwind. Three screens, two routes for navigation, polling-based
-live updates. No global state library — local `useState` + a tiny
-`useRunPolling` hook is enough.
+Next.js (App Router) + React + Tailwind. Three screens via file-system
+routing, polling-based live updates. No global state library — local
+`useState` + a tiny `useRunPolling` hook is enough.
 
-For why this shape, see `locked-decisions.md` #5, #10, #11.
+Every page is a client component (`"use client"`). The prototype does not use
+any Next server-side data fetching; the Fastify API at
+`process.env.NEXT_PUBLIC_API_URL` (defaults to `http://localhost:4000`) is the
+only data source. Choosing Next now (vs. Vite) costs nothing and keeps the
+door open to server components / route handlers / SSE later.
+
+For why this shape, see `locked-decisions.md` #5, #9, #10, #11.
 
 ---
 
 ## Routes
 
-| Route | Screen | Notes |
-|---|---|---|
-| `/` | Runs list | Table of past + in-progress runs, "New run" button. |
-| `/new` | Setup | Two agent forms (preset dropdowns), target, rounds, model, run button. |
-| `/runs/:id` | Run detail | Live (polling) or completed view. Transcript + morale chart + paper total. |
+| Route | File | Screen | Notes |
+|---|---|---|---|
+| `/` | `app/page.tsx` | Runs list | Table of past + in-progress runs, "New run" button. |
+| `/new` | `app/new/page.tsx` | Setup | Two agent forms (preset dropdowns), target, rounds, model, run button. |
+| `/runs/:id` | `app/runs/[id]/page.tsx` | Run detail | Live (polling) or completed view. Transcript + morale chart + paper total. |
 
-Use `react-router` v6+ — minimal config, three `<Route>` entries.
+App Router file-system routing — no `react-router`. Each page is annotated
+`"use client"` since the entire UI is client-rendered. The shared shell
+(nav + container) lives in `app/layout.tsx`.
 
 ---
 
@@ -47,26 +55,23 @@ A simple table. One row per run, newest first.
 ### Component sketch
 
 ```tsx
-function RunsList() {
+'use client';
+import Link from 'next/link';
+
+export default function RunsListPage() {
   const { runs, loading } = useRuns();
   return (
-    <Layout>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-semibold">Runs</h1>
-        <Link to="/new" className="btn-primary">New run</Link>
-      </div>
-      {loading ? <Spinner /> : runs.length === 0 ? <EmptyState /> : (
-        <table className="w-full text-sm">
-          <thead>...</thead>
-          <tbody>
-            {runs.map(r => <RunRow key={r.id} run={r} />)}
-          </tbody>
-        </table>
-      )}
-    </Layout>
+    <div className="flex justify-between items-center mb-6">
+      <h1 className="text-2xl font-semibold">Runs</h1>
+      <Link href="/new" className="btn-primary">New run</Link>
+    </div>
+    /* loading / empty / table omitted */
   );
 }
 ```
+
+The shared layout (`app/layout.tsx`) wraps every page, so individual page
+files don't render `<Layout>` themselves.
 
 ---
 
@@ -126,8 +131,11 @@ Reasonable defaults pre-filled. Model dropdown: `gpt-4.1`, `gpt-4o`,
 ### Submit behavior
 
 ```ts
+import { useRouter } from 'next/navigation';
+const router = useRouter();
+
 async function onRun() {
-  const res = await fetch('/runs', {
+  const res = await fetch(`${API_BASE}/runs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -139,9 +147,12 @@ async function onRun() {
     }),
   });
   const { id } = await res.json();
-  navigate(`/runs/${id}`);
+  router.push(`/runs/${id}`);
 }
 ```
+
+`API_BASE` is `process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'`,
+read once in `lib/api.ts`.
 
 Validate client-side before POSTing (Zod schema shared with the API via
 `packages/shared`).
@@ -229,7 +240,7 @@ If `status === 'failed'`:
 
 ## Polling
 
-Hook lives in `apps/web/src/hooks/use-run-polling.ts`.
+Hook lives in `apps/web/hooks/use-run-polling.ts`.
 
 ```ts
 export function useRunPolling(id: string) {
@@ -272,14 +283,14 @@ Key rules:
 ## Component layout
 
 ```
-apps/web/src/
-├── App.tsx                       # Router + global Layout
-├── routes/
-│   ├── runs-list.tsx             # /
-│   ├── new-run.tsx               # /new
-│   └── run-detail.tsx            # /runs/:id
+apps/web/
+├── app/
+│   ├── layout.tsx                # Root layout: nav + container, <html>/<body>
+│   ├── globals.css               # Tailwind directives + .btn-primary, .input, etc.
+│   ├── page.tsx                  # /            (runs list)
+│   ├── new/page.tsx              # /new         (setup form)
+│   └── runs/[id]/page.tsx        # /runs/:id    (run detail w/ polling)
 ├── components/
-│   ├── layout.tsx                # nav + container
 │   ├── agent-form.tsx            # one panel; takes role + value/onChange
 │   ├── preset-dropdown.tsx
 │   ├── transcript.tsx            # list of round blocks
@@ -291,8 +302,13 @@ apps/web/src/
 ├── hooks/
 │   ├── use-run-polling.ts
 │   └── use-runs.ts               # for the list view's gentler polling
-├── api.ts                        # fetch wrappers + types
-└── main.tsx
+├── lib/
+│   └── api.ts                    # fetch wrappers + API_BASE constant
+├── next.config.ts
+├── tailwind.config.ts
+├── postcss.config.js
+├── tsconfig.json
+└── package.json
 ```
 
 ---
@@ -301,7 +317,7 @@ apps/web/src/
 
 - Vanilla Tailwind, no UI library in v1 (no shadcn, no MUI). Forms use plain
   `<input>`/`<textarea>` with Tailwind classes; modals are unnecessary.
-- Define a tiny set of utility classes in `index.css`:
+- Define a tiny set of utility classes in `app/globals.css`:
 
 ```css
 @layer components {

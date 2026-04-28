@@ -1,0 +1,31 @@
+{
+  "//": "Next.js (App Router) frontend. Imports @work-sim/shared via the tsconfig path alias for types AND a `file:` link so Next's bundler resolves the package at runtime. Pure client app — no Next server data fetching is used in v1; every page is annotated 'use client'.",
+  "name": "@work-sim/web",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "//dev": "Starts Next dev server on :3000. The Fastify API is expected at NEXT_PUBLIC_API_URL (default http://localhost:4000).",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "//deps": "DEPENDENCY: next, react, react-dom, recharts, zod — all new for the frontend scaffold.",
+    "@work-sim/shared": "file:../../packages/shared",
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "recharts": "^2.12.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.5.0"
+  }
+}

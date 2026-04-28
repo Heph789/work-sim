@@ -242,12 +242,16 @@ app.listen({ port, host: '0.0.0.0' }).then(() => {
 });
 ```
 
-CORS: enable for `http://localhost:5173` (Vite default) in dev:
+CORS: enable for `http://localhost:3000` (Next.js dev default) in dev:
 
 ```ts
 import cors from '@fastify/cors';
-app.register(cors, { origin: 'http://localhost:5173' });
+app.register(cors, { origin: 'http://localhost:3000' });
 ```
+
+The frontend may alternatively proxy `/runs` through Next's `rewrites` to the
+Fastify origin, in which case CORS isn't needed at all. The scaffold uses a
+direct cross-origin fetch with `NEXT_PUBLIC_API_URL` to keep wiring simple.
 
 ---
 

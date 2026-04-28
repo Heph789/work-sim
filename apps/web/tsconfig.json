@@ -1,0 +1,24 @@
+{
+  "//": "Per-package tsconfig. Extends the repo-root base so the @work-sim/shared path alias is in scope. Adds JSX + DOM libs that the API package doesn't need, and Next's bundler-aware module resolution.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "jsx": "preserve",
+    "noEmit": true,
+    "incremental": true,
+    "allowJs": true,
+    "plugins": [{ "name": "next" }],
+    "paths": {
+      "@work-sim/shared": ["../../packages/shared/src/index.ts"],
+      "@work-sim/shared/*": ["../../packages/shared/src/*"],
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
+}

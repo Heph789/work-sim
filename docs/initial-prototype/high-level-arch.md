@@ -22,7 +22,7 @@ For decision rationale, see `locked-decisions.md`.
 ┌──────────────────────────────────────────────────────────────────────┐
 │                              Browser                                 │
 │                                                                      │
-│   React (Vite + Tailwind)                                            │
+│   Next.js (App Router) + React + Tailwind                            │
 │   ┌──────────────┐  ┌────────────────┐  ┌────────────────────────┐  │
 │   │  Runs List   │  │  Setup (/new)  │  │   Run Detail (/runs/x) │  │
 │   │     (/)      │  │                │  │   ◀── polls every 2s ──┤  │
@@ -168,12 +168,15 @@ work-sim/
 │   │   │   ├── db/             # Drizzle schema + migrations
 │   │   │   └── llm/            # OpenAIClient implementation
 │   │   └── package.json
-│   └── web/                    # React + Vite + Tailwind
-│       ├── src/
-│       │   ├── App.tsx
-│       │   ├── routes/         # /, /new, /runs/:id
-│       │   ├── components/
-│       │   └── api.ts          # Fetch helpers, polling
+│   └── web/                    # Next.js (App Router) + React + Tailwind
+│       ├── app/                # File-system routes (page.tsx per route)
+│       │   ├── layout.tsx      # Root layout (nav + container)
+│       │   ├── page.tsx        # /            (runs list)
+│       │   ├── new/page.tsx    # /new         (setup form)
+│       │   └── runs/[id]/page.tsx  # /runs/:id (run detail w/ polling)
+│       ├── components/
+│       ├── hooks/              # use-run-polling, use-runs
+│       ├── lib/api.ts          # Fetch wrappers + types
 │       └── package.json
 ├── packages/
 │   └── shared/                 # Cross-boundary TS types + LLMClient interface

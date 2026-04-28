@@ -172,7 +172,7 @@ researchers wanting to A/B that exact lever.
 - **DB:** SQLite via `better-sqlite3` + Drizzle ORM
 - **LLM:** OpenAI (`gpt-4.1` or `gpt-4o`) behind a `LLMClient` abstraction so
   providers swap by changing one factory line
-- **Frontend:** React + Vite + Tailwind
+- **Frontend:** Next.js (App Router) + React + Tailwind
 - **Repo shape:** Single repo, two folders (`apps/api`, `apps/web`) + a tiny
   `packages/shared` for cross-boundary types and the `LLMClient` interface.
   No npm workspaces — relative imports or a tsconfig path alias.
@@ -181,6 +181,14 @@ researchers wanting to A/B that exact lever.
 clean upgrade path (SQLite→Postgres via Drizzle; polling→SSE via Fastify;
 OpenAI→Anthropic via the abstraction). Monorepo-without-workspaces avoids
 tooling overhead the prototype doesn't need.
+
+**Why Next.js for the frontend:** Even though the prototype only needs three
+client-rendered screens, Next.js gives us file-system routing without adding
+`react-router`, a built-in dev server, and a clean upgrade path if we later
+want server components (e.g., server-rendered runs list with revalidation),
+route handlers (replace polling with edge SSE), or deployment to Vercel. The
+whole prototype runs as client components against the Fastify API — no Next
+server data fetching is used in v1.
 
 **Why the LLM abstraction:** OpenAI for now (user's key), but the shape of the
 problem is provider-agnostic. The interface exposes only `complete()` and
