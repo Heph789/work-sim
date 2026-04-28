@@ -76,6 +76,7 @@ export interface RoundRowLike {
   managerMessage: string;
   workerMessage: string;
   workerSelfPerception: string;
+  workerMoraleRationale: string;
   morale: number;
   paperSold: number;
   createdAt: number;
@@ -131,6 +132,7 @@ export function toRoundView(row: RoundRowLike): RoundView {
     manager_message: row.managerMessage,
     worker_message: row.workerMessage,
     worker_self_perception: row.workerSelfPerception,
+    worker_morale_rationale: row.workerMoraleRationale,
     morale: row.morale,
     paper_sold: row.paperSold,
     created_at: row.createdAt,

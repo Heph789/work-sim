@@ -98,6 +98,9 @@ export const rounds = sqliteTable(
     /** The worker's updated_self_perception — private; manager prompts never see it. */
     workerSelfPerception: text('worker_self_perception').notNull(),
 
+    /** Worker's stated reason for the morale value this round. Debug aid. */
+    workerMoraleRationale: text('worker_morale_rationale').notNull(),
+
     /** 0–100. Validated by Zod after the LLM response is parsed. */
     morale: integer('morale').notNull(),
 

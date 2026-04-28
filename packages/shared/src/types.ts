@@ -96,6 +96,7 @@ export interface RoundView {
   manager_message: string;
   worker_message: string;
   worker_self_perception: string;
+  worker_morale_rationale: string;
   morale: number;
   paper_sold: number;
   created_at: number;

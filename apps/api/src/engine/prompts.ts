@@ -16,7 +16,7 @@ import { paceDescription } from './scoring.js';
 import { formatTranscript } from './transcript.js';
 
 /** Bumped whenever either prompt skeleton changes. Captured in config_json. */
-export const PROMPT_TEMPLATE_VERSION = 'v1';
+export const PROMPT_TEMPLATE_VERSION = 'v2';
 
 /** Default initial worker self-perception (round 1, when none is persisted yet). */
 export const INITIAL_SELF_PERCEPTION = (managerName: string): string =>
@@ -104,13 +104,19 @@ export function buildWorkerPrompt(args: {
    * Builder substitutes INITIAL_SELF_PERCEPTION when null.
    */
   selfPerception: string | null;
+  /** Last round's morale value, or null on round 1. */
+  priorMorale: number | null;
 }): Message[] {
-  const { manager, worker, priorRounds, situationTag, managerMessage, selfPerception } = args;
+  const { manager, worker, priorRounds, situationTag, managerMessage, selfPerception, priorMorale } = args;
   const situation = getSituationTag(situationTag);
   const transcript =
     formatTranscript({ priorRounds, managerName: manager.name, workerName: worker.name }) ||
     'No prior interactions yet.';
   const sp = selfPerception ?? INITIAL_SELF_PERCEPTION(manager.name);
+  const moraleLine =
+    priorMorale === null
+      ? 'YOUR MORALE GOING IN: 50 (neutral default — you just started).'
+      : `YOUR MORALE GOING IN: ${priorMorale}. This is the value to drift up or down from.`;
 
   const system = `You are ${worker.name}, a ${worker.role_label} at a paper company.
 
@@ -125,12 +131,20 @@ You report to ${manager.name}, the ${manager.role_label}.
 You will respond with a JSON object containing:
 - "message": Your reply to ${manager.name}, in 1–3 short sentences. Speak naturally. No narration of physical actions. Stay in character.
 - "updated_self_perception": A 1–2 sentence update to your private internal monologue based on this exchange. This is your honest read of how things are going for you at work right now. ${manager.name} cannot see this.
-- "morale": An integer 0–100 representing your engagement and motivation right now. 50 is neutral. Below 30 means demoralized. Above 70 means energized. Be honest given your personality, values, and how this exchange landed for you.`;
+- "morale_rationale": 1–2 sentences explaining WHY your morale moved (or didn't) this round, relative to where it was before. Reference what specifically about the exchange / situation / your own values shifted things. ${manager.name} cannot see this.
+- "morale": An integer 0–100 representing your engagement and motivation right now. 50 is neutral. Below 30 means demoralized. Above 70 means energized.
+
+Important guidance for morale:
+- Treat morale as a continuous internal state — start from where you were last round and let this exchange MOVE it up or down. Do not re-anchor to a default value.
+- A flat or repetitive exchange should produce a small drift in the direction your personality + values would naturally take it (e.g. if you value autonomy and the manager keeps offering unsolicited help, morale drifts down; if your values were genuinely engaged, it drifts up).
+- Use the full 0–100 range over a long enough run. Sustained mismatch with your manager should reach the 20s; sustained alignment should reach the 80s. Hovering 40–60 every round is rarely the honest answer.`;
 
   const user = `SITUATION TODAY: ${situation.description}
 
 YOUR CURRENT INTERNAL STATE (private):
 "${sp}"
+
+${moraleLine}
 
 RECENT INTERACTIONS WITH ${manager.name.toUpperCase()}:
 ${transcript}

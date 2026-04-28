@@ -82,6 +82,13 @@ export const WorkerResponseSchema = z.object({
   updated_self_perception: z.string().min(1).max(1000),
 
   /**
+   * 1–2 sentences explaining WHY morale moved (or didn't) this round.
+   * Forces the model to reason about morale as a delta from prior state
+   * rather than re-anchoring on a default; private to the worker.
+   */
+  morale_rationale: z.string().min(1).max(500),
+
+  /**
    * 0–100. 50 is neutral; <30 demoralized; >70 energized. The LLM emits this
    * subjective signal; the engine consumes it deterministically.
    */

@@ -57,6 +57,7 @@ export class Runner {
     await this.db.runs.setStatus(runId, 'running');
 
     let lastSelfPerception: string | null = null;
+    let lastMorale: number | null = null;
     const priorRounds: Pick<RoundView, 'manager_message' | 'worker_message'>[] = [];
     let currentRound = 0;
 
@@ -90,6 +91,7 @@ export class Runner {
             situationTag: tag,
             managerMessage: managerMsg,
             selfPerception: lastSelfPerception,
+            priorMorale: lastMorale,
           }),
           WorkerResponseSchema,
           'WorkerResponse',
@@ -112,6 +114,7 @@ export class Runner {
           managerMessage: managerMsg,
           workerMessage: workerRes.message,
           workerSelfPerception: workerRes.updated_self_perception,
+          workerMoraleRationale: workerRes.morale_rationale,
           morale: workerRes.morale,
           paperSold: paperSoldThisRound,
           createdAt: Date.now(),
@@ -119,6 +122,7 @@ export class Runner {
         await this.db.runs.bumpProgress(runId, i, paperSoldThisRound);
 
         lastSelfPerception = workerRes.updated_self_perception;
+        lastMorale = workerRes.morale;
         priorRounds.push(
           this.toPriorRound({ managerMessage: managerMsg, workerMessage: workerRes.message }),
         );
