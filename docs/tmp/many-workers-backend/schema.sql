@@ -168,15 +168,19 @@ CREATE TABLE interaction (
     initiator_message             TEXT    NOT NULL,
     responder_message             TEXT    NOT NULL,
 
-    -- Initiator-side morale/rationale/self_perception is NULL when the
-    -- initiator is the manager (v1: managers don't emit morale state).
-    initiator_morale              INTEGER,
+    -- Morale is stored as the RAW signed delta the LLM emitted, [-10, +10].
+    -- Running absolute morale lives on round_avatar.morale; the engine
+    -- weights manager-1:1 deltas (×2) in-memory before summation.
+    --
+    -- Initiator-side fields are NULL when the initiator is the manager
+    -- (v1: managers don't emit morale state).
+    initiator_morale_delta        INTEGER,
     initiator_morale_rationale    TEXT,
     initiator_self_perception     TEXT,
 
     -- Responder is always a worker in v1 (manager → worker 1:1, or peer).
     -- These are NOT NULL.
-    responder_morale              INTEGER NOT NULL,
+    responder_morale_delta        INTEGER NOT NULL,
     responder_morale_rationale    TEXT    NOT NULL,
     responder_self_perception     TEXT    NOT NULL,
 

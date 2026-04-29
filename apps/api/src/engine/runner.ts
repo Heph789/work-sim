@@ -6,9 +6,13 @@ import { v4 as uuid } from 'uuid';
 
 import type { LLMClient } from '@work-sim/shared';
 import {
-  AvatarTurnSchema,
+  OpeningTurnSchema,
+  ReactionTurnSchema,
+  InitiatorReflectionSchema,
   type AvatarProfile,
-  type AvatarTurn,
+  type OpeningTurn,
+  type ReactionTurn,
+  type InitiatorReflection,
   type RunConfig,
 } from '@work-sim/shared';
 import {
@@ -21,16 +25,19 @@ import {
 import type { AppDb } from '../db/index.js';
 import type { AvatarRow, InteractionRow, NewInteractionRow } from '../db/schema.js';
 import {
+  applyMoraleDelta,
   paperSold,
+  signedDelta,
   teamExpected,
   workerExpectedShare,
-  signedDelta,
+  MANAGER_DELTA_WEIGHT,
 } from './scoring.js';
 import {
   buildManagerPrompt,
-  buildWorker1on1Prompt,
-  buildPeerInitiatorPrompt,
+  buildPeerInitiatorOpeningPrompt,
+  buildPeerInitiatorReflectionPrompt,
   buildPeerResponderPrompt,
+  buildWorker1on1Prompt,
   INITIAL_SELF_PERCEPTION,
   PROMPT_TEMPLATE_VERSION,
 } from './prompts.js';
@@ -42,8 +49,13 @@ void PROMPT_TEMPLATE_VERSION;
  * in config_json so historical runs are tied to the engine version that
  * produced them — necessary for reproducibility.
  */
-export const SIM_ENGINE_VERSION = 'v2';
+export const SIM_ENGINE_VERSION = 'v3';
 
+/**
+ * Worker's running internal state. Morale is the absolute 0..100 running
+ * total accumulated from weighted deltas; moraleRationale holds the most
+ * recent delta's rationale (surfaced on round_avatar.morale_rationale).
+ */
 interface WorkerState {
   selfPerception: string;
   morale: number;
@@ -164,9 +176,6 @@ export class Runner {
       createdAt: Date.now(),
     });
 
-    // Prior interactions across the whole run, used by both phases for
-    // history lookups. Today's just-streamed interactions are tracked in a
-    // local array so the same round's earlier exchanges feed later prompts.
     const priorInteractions = await this.db.interactions.byAvatar(
       runId,
       manager.id,
@@ -195,9 +204,6 @@ export class Runner {
       orderStart: order,
     });
 
-    // Build the broader prior-interactions pool for the peer phase by
-    // including every avatar's history (not just manager↔W). We re-use the
-    // already-loaded list and supplement with peer-only rows.
     const priorPeerInteractions = await this.loadPriorPeerInteractions(
       runId,
       workers,
@@ -334,10 +340,10 @@ export class Runner {
         avatarsById,
       });
 
-      const workerTurn = await this.llm.completeStructured<AvatarTurn>(
+      const workerTurn = await this.llm.completeStructured<ReactionTurn>(
         workerMessages,
-        AvatarTurnSchema,
-        'AvatarTurn',
+        ReactionTurnSchema,
+        'ReactionTurn',
         {
           model: config.model,
           temperature: config.temperature,
@@ -356,10 +362,10 @@ export class Runner {
         responderAvatarId: worker.id,
         initiatorMessage: managerMessage,
         responderMessage: workerTurn.message,
-        initiatorMorale: null,
+        initiatorMoraleDelta: null,
         initiatorMoraleRationale: null,
         initiatorSelfPerception: null,
-        responderMorale: workerTurn.morale,
+        responderMoraleDelta: workerTurn.morale_delta,
         responderMoraleRationale: workerTurn.morale_rationale,
         responderSelfPerception: workerTurn.updated_self_perception,
         createdAt: Date.now(),
@@ -369,7 +375,11 @@ export class Runner {
 
       const ws = workerState.get(worker.id)!;
       ws.selfPerception = workerTurn.updated_self_perception;
-      ws.morale = workerTurn.morale;
+      ws.morale = applyMoraleDelta(
+        ws.morale,
+        workerTurn.morale_delta,
+        MANAGER_DELTA_WEIGHT,
+      );
       ws.moraleRationale = workerTurn.morale_rationale;
 
       order++;
@@ -426,7 +436,8 @@ export class Runner {
         isPairInteraction(it, initiator.id, responder.id),
       );
 
-      const initiatorMessages = buildPeerInitiatorPrompt({
+      // ── Call 1: initiator opens with a message only ──────────────────
+      const openingMessages = buildPeerInitiatorOpeningPrompt({
         self: initiatorProfile,
         partner: responderProfile,
         situationTag,
@@ -436,10 +447,10 @@ export class Runner {
         avatarsById,
       });
 
-      const initiatorTurn = await this.llm.completeStructured<AvatarTurn>(
-        initiatorMessages,
-        AvatarTurnSchema,
-        'AvatarTurn',
+      const opening = await this.llm.completeStructured<OpeningTurn>(
+        openingMessages,
+        OpeningTurnSchema,
+        'OpeningTurn',
         {
           model: config.model,
           temperature: config.temperature,
@@ -447,6 +458,7 @@ export class Runner {
         },
       );
 
+      // ── Responder reacts: full ReactionTurn ──────────────────────────
       const responderMessages = buildPeerResponderPrompt({
         self: responderProfile,
         partner: initiatorProfile,
@@ -454,20 +466,45 @@ export class Runner {
         selfPerception: workerState.get(responder.id)!.selfPerception,
         todayInteractionsForSelf: interactionsThisRound,
         pairHistory,
-        initiatorMessage: initiatorTurn.message,
+        initiatorMessage: opening.message,
         avatarsById,
       });
 
-      const responderTurn = await this.llm.completeStructured<AvatarTurn>(
+      const responderTurn = await this.llm.completeStructured<ReactionTurn>(
         responderMessages,
-        AvatarTurnSchema,
-        'AvatarTurn',
+        ReactionTurnSchema,
+        'ReactionTurn',
         {
           model: config.model,
           temperature: config.temperature,
           topP: config.top_p,
         },
       );
+
+      // ── Call 2: initiator reflects on the reply ──────────────────────
+      const reflectionMessages = buildPeerInitiatorReflectionPrompt({
+        self: initiatorProfile,
+        partner: responderProfile,
+        situationTag,
+        selfPerception: workerState.get(initiator.id)!.selfPerception,
+        todayInteractionsForSelf: interactionsThisRound,
+        pairHistory,
+        initiatorMessage: opening.message,
+        responderMessage: responderTurn.message,
+        avatarsById,
+      });
+
+      const reflection =
+        await this.llm.completeStructured<InitiatorReflection>(
+          reflectionMessages,
+          InitiatorReflectionSchema,
+          'InitiatorReflection',
+          {
+            model: config.model,
+            temperature: config.temperature,
+            topP: config.top_p,
+          },
+        );
 
       const row: NewInteractionRow = {
         id: uuid(),
@@ -478,12 +515,12 @@ export class Runner {
         situationTag,
         initiatorAvatarId: initiator.id,
         responderAvatarId: responder.id,
-        initiatorMessage: initiatorTurn.message,
+        initiatorMessage: opening.message,
         responderMessage: responderTurn.message,
-        initiatorMorale: initiatorTurn.morale,
-        initiatorMoraleRationale: initiatorTurn.morale_rationale,
-        initiatorSelfPerception: initiatorTurn.updated_self_perception,
-        responderMorale: responderTurn.morale,
+        initiatorMoraleDelta: reflection.morale_delta,
+        initiatorMoraleRationale: reflection.morale_rationale,
+        initiatorSelfPerception: reflection.updated_self_perception,
+        responderMoraleDelta: responderTurn.morale_delta,
         responderMoraleRationale: responderTurn.morale_rationale,
         responderSelfPerception: responderTurn.updated_self_perception,
         createdAt: Date.now(),
@@ -492,13 +529,21 @@ export class Runner {
       interactionsThisRound.push(row as InteractionRow);
 
       const initState = workerState.get(initiator.id)!;
-      initState.selfPerception = initiatorTurn.updated_self_perception;
-      initState.morale = initiatorTurn.morale;
-      initState.moraleRationale = initiatorTurn.morale_rationale;
+      initState.selfPerception = reflection.updated_self_perception;
+      initState.morale = applyMoraleDelta(
+        initState.morale,
+        reflection.morale_delta,
+        1,
+      );
+      initState.moraleRationale = reflection.morale_rationale;
 
       const respState = workerState.get(responder.id)!;
       respState.selfPerception = responderTurn.updated_self_perception;
-      respState.morale = responderTurn.morale;
+      respState.morale = applyMoraleDelta(
+        respState.morale,
+        responderTurn.morale_delta,
+        1,
+      );
       respState.moraleRationale = responderTurn.morale_rationale;
 
       order++;

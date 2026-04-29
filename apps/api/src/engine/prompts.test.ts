@@ -5,7 +5,8 @@ import type { AvatarProfile } from '@work-sim/shared';
 import type { AvatarRow } from '../db/schema.js';
 import {
   buildManagerPrompt,
-  buildPeerInitiatorPrompt,
+  buildPeerInitiatorOpeningPrompt,
+  buildPeerInitiatorReflectionPrompt,
   buildPeerResponderPrompt,
   buildWorker1on1Prompt,
 } from './prompts.js';
@@ -93,7 +94,7 @@ describe('buildManagerPrompt', () => {
 });
 
 describe('buildWorker1on1Prompt', () => {
-  it('includes the worker self_perception and the manager message', () => {
+  it('includes the worker self_perception and the manager message and asks for morale_delta', () => {
     const messages = buildWorker1on1Prompt({
       worker: workerProfile,
       manager: managerProfile,
@@ -108,15 +109,35 @@ describe('buildWorker1on1Prompt', () => {
     expect(text).toContain('I feel underused.');
     expect(text).toContain('How are sales?');
     expect(text).toContain('JSON object');
+    expect(text).toContain('morale_delta');
+    expect(text).toContain('-10 and +10');
+  });
+
+  it('does NOT reveal the worker their current absolute morale', () => {
+    const messages = buildWorker1on1Prompt({
+      worker: workerProfile,
+      manager: managerProfile,
+      situationTag: 'routine_check_in',
+      selfPerception: 'fine',
+      managerMessage: 'hi',
+      todayInteractionsForWorker: [],
+      priorManagerWorkerInteractions: [],
+      avatarsById: new Map(),
+    });
+    const text = messages.map((m) => m.content).join('\n');
+    // The user prompt body should not contain phrases that surface a current
+    // 0..100 morale value to the avatar — we only describe the delta range.
+    expect(text).not.toMatch(/your current morale/i);
+    expect(text).not.toMatch(/morale: \d+/);
   });
 });
 
-describe('buildPeerInitiatorPrompt and buildPeerResponderPrompt', () => {
+describe('peer initiator (2-call) and peer responder', () => {
   const peerSelf = profile({ id: 'p1', name: 'Pam' });
   const peerPartner = profile({ id: 'p2', name: 'Andy' });
 
-  it('initiator framing prompts the model to step into the hallway', () => {
-    const messages = buildPeerInitiatorPrompt({
+  it('opening call asks only for a message — no morale, no self_perception update', () => {
+    const messages = buildPeerInitiatorOpeningPrompt({
       self: peerSelf,
       partner: peerPartner,
       situationTag: 'routine_check_in',
@@ -128,9 +149,11 @@ describe('buildPeerInitiatorPrompt and buildPeerResponderPrompt', () => {
     const text = messages.map((m) => m.content).join('\n');
     expect(text).toContain('hallway');
     expect(text).toContain('What do you say?');
+    expect(text).not.toContain('morale_delta');
+    expect(text).not.toContain('updated_self_perception');
   });
 
-  it('responder framing includes the initiator message', () => {
+  it('responder framing includes the initiator message and asks for morale_delta', () => {
     const messages = buildPeerResponderPrompt({
       self: peerPartner,
       partner: peerSelf,
@@ -144,6 +167,27 @@ describe('buildPeerInitiatorPrompt and buildPeerResponderPrompt', () => {
     const text = messages.map((m) => m.content).join('\n');
     expect(text).toContain('Hey, got a sec?');
     expect(text).toContain('Respond now');
+    expect(text).toContain('morale_delta');
+  });
+
+  it('reflection call shows both the initiating message AND the reply, and asks for delta + perception', () => {
+    const messages = buildPeerInitiatorReflectionPrompt({
+      self: peerSelf,
+      partner: peerPartner,
+      situationTag: 'routine_check_in',
+      selfPerception: 'feeling fine',
+      todayInteractionsForSelf: [],
+      pairHistory: [],
+      initiatorMessage: 'Hey, got a sec?',
+      responderMessage: 'Not really.',
+      avatarsById: new Map(),
+    });
+    const text = messages.map((m) => m.content).join('\n');
+    expect(text).toContain('Hey, got a sec?');
+    expect(text).toContain('Not really.');
+    expect(text).toContain('morale_delta');
+    expect(text).toContain('updated_self_perception');
+    expect(text).toContain('reflect');
   });
 });
 

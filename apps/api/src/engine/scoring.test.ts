@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  applyMoraleDelta,
+  MANAGER_DELTA_WEIGHT,
   paperSold,
   signedDelta,
   teamExpected,
@@ -86,5 +88,37 @@ describe('signedDelta', () => {
 
   it('treats equality as "above"', () => {
     expect(signedDelta(50, 50)).toEqual({ abs: 0, direction: 'above' });
+  });
+});
+
+describe('applyMoraleDelta', () => {
+  it('applies a peer-weight delta unchanged', () => {
+    expect(applyMoraleDelta(50, +5, 1)).toBe(55);
+    expect(applyMoraleDelta(50, -3, 1)).toBe(47);
+  });
+
+  it('scales the delta by the manager weight', () => {
+    expect(applyMoraleDelta(50, +5, MANAGER_DELTA_WEIGHT)).toBe(60);
+    expect(applyMoraleDelta(50, -5, MANAGER_DELTA_WEIGHT)).toBe(40);
+  });
+
+  it('clamps the running total at 100', () => {
+    expect(applyMoraleDelta(95, +10, 1)).toBe(100);
+    expect(applyMoraleDelta(95, +10, MANAGER_DELTA_WEIGHT)).toBe(100);
+  });
+
+  it('clamps the running total at 0', () => {
+    expect(applyMoraleDelta(5, -10, 1)).toBe(0);
+    expect(applyMoraleDelta(5, -10, MANAGER_DELTA_WEIGHT)).toBe(0);
+  });
+
+  it('treats a 0 delta as a no-op', () => {
+    expect(applyMoraleDelta(60, 0, MANAGER_DELTA_WEIGHT)).toBe(60);
+  });
+});
+
+describe('MANAGER_DELTA_WEIGHT', () => {
+  it('is 2 — manager 1:1 morale shifts twice as hard as a peer chat', () => {
+    expect(MANAGER_DELTA_WEIGHT).toBe(2);
   });
 });

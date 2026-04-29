@@ -23,6 +23,30 @@ export function paperSold(baselineOutput: number, morale: number): number {
 }
 
 /**
+ * Multiplier applied to morale deltas emitted in a manager 1:1 before they
+ * are summed into the worker's running morale total. Peer-interaction deltas
+ * are weighted 1×. Hardcoded for now — will lift into RunConfig once the
+ * weight has been calibrated empirically.
+ */
+export const MANAGER_DELTA_WEIGHT = 2;
+
+/**
+ * Apply a single morale delta to a running absolute morale total. The LLM
+ * emits a delta in [-10, +10]; the engine multiplies by `weight` (×2 for
+ * manager 1:1, ×1 for peer) and clamps the running total to 0..100.
+ */
+export function applyMoraleDelta(
+  currentMorale: number,
+  delta: number,
+  weight: number,
+): number {
+  const next = currentMorale + delta * weight;
+  if (next < 0) return 0;
+  if (next > 100) return 100;
+  return next;
+}
+
+/**
  * What the team SHOULD have produced by `roundsCompleted` if pace were even:
  * `round(target_paper * roundsCompleted / roundsTotal)`. Injected into the
  * manager prompt and used by the dashboard's team_delta tile.

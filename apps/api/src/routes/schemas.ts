@@ -143,9 +143,9 @@ export interface InteractionRowLike {
   responderAvatarId: string;
   initiatorMessage: string;
   responderMessage: string;
-  initiatorMorale: number | null;
+  initiatorMoraleDelta: number | null;
   initiatorMoraleRationale: string | null;
-  responderMorale: number;
+  responderMoraleDelta: number;
   responderMoraleRationale: string;
   createdAt: number;
 }
@@ -383,9 +383,9 @@ export function toAvatarDetail(args: {
         },
         initiator_message: it.initiatorMessage,
         responder_message: it.responderMessage,
-        initiator_morale: it.initiatorMorale,
+        initiator_morale_delta: it.initiatorMoraleDelta,
         initiator_morale_rationale: it.initiatorMoraleRationale,
-        responder_morale: it.responderMorale,
+        responder_morale_delta: it.responderMoraleDelta,
         responder_morale_rationale: it.responderMoraleRationale,
         // self_perception fields deliberately absent — see fn-level comment.
         created_at: it.createdAt,

@@ -215,9 +215,13 @@ export interface DrilldownRoundEntry {
 
 /**
  * One interaction row as exposed in the drilldown feed. Both sides'
- * messages and morale are returned, but `*_self_perception` is filtered out
- * — the subject avatar's self_perception comes through the per-round entries
- * (DrilldownRoundEntry); other participants' self_perception is private.
+ * messages and emitted morale deltas are returned. The delta is the RAW
+ * value the LLM emitted (signed integer in [-10, +10]), unweighted —
+ * weighting is an engine-side accounting concern. Per-round running morale
+ * (the absolute 0..100 number) lives on `DrilldownRoundEntry`.
+ *
+ * `*_self_perception` is filtered out — the subject avatar's self_perception
+ * comes through the per-round entries; other participants' is private.
  */
 export interface DrilldownInteraction {
   id: string;
@@ -228,9 +232,10 @@ export interface DrilldownInteraction {
   responder: { id: string; name: string; role_in_sim: AvatarRole };
   initiator_message: string;
   responder_message: string;
-  initiator_morale: number | null;
+  /** NULL when initiator is the manager (managers don't track morale in v1). */
+  initiator_morale_delta: number | null;
   initiator_morale_rationale: string | null;
-  responder_morale: number;
+  responder_morale_delta: number;
   responder_morale_rationale: string;
   created_at: number;
 }

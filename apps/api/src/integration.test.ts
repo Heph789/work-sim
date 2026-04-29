@@ -14,7 +14,6 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { z } from 'zod';
 
 import {
-  type AvatarTurn,
   type LLMCallOptions,
   type LLMClient,
   type Message,
@@ -45,9 +44,11 @@ import { toAvatarDetail, toRunDetail } from './routes/schemas.js';
  * outputs so the runner exercises the full code path without network IO.
  *
  * - `complete` (manager free-text) returns a context-aware short line.
- * - `completeStructured` returns an AvatarTurn with a deterministic
- *   morale/self_perception/rationale derived from the call index. Per the
- *   AvatarTurnSchema spec, all four fields are present and within bounds.
+ * - `completeStructured` is called against three different schemas in this
+ *   iteration (OpeningTurn / ReactionTurn / InitiatorReflection). We return
+ *   a superset object containing every field any of the schemas needs;
+ *   zod's default object parsing strips unknown keys per schema so the same
+ *   value satisfies all three.
  */
 function makeStubLLM(): LLMClient & {
   callLog: Array<{ kind: 'complete' | 'completeStructured'; lastUserSnippet: string }>;
@@ -64,7 +65,6 @@ function makeStubLLM(): LLMClient & {
     async complete(messages: Message[], _opts: LLMCallOptions): Promise<string> {
       const last = messages[messages.length - 1]?.content ?? '';
       callLog.push({ kind: 'complete', lastUserSnippet: last.slice(0, 60) });
-      // Manager 1:1 free-text. Keep it short and in-character-ish.
       return 'How are things going today? Anything you want to flag?';
     },
 
@@ -80,20 +80,21 @@ function makeStubLLM(): LLMClient & {
         lastUserSnippet: last.slice(0, 60),
       });
 
-      // Cycle morale across a wide range so the dashboard aggregations have
-      // something interesting to verify.
-      const moraleStops = [55, 62, 48, 70, 40, 58, 65];
-      const morale = moraleStops[structuredCallIndex % moraleStops.length]!;
+      // Cycle deltas across the [-10, +10] range so dashboard aggregations
+      // see meaningful morale movement.
+      const deltaStops = [+5, +2, -3, +7, -6, +4, -1];
+      const morale_delta =
+        deltaStops[structuredCallIndex % deltaStops.length]!;
       structuredCallIndex++;
 
-      const turn: AvatarTurn = {
+      // Superset shape; zod strips unknown keys per the active schema.
+      const turn = {
         message: 'Sounds good — I am keeping at it.',
         updated_self_perception:
           'I feel steady; the manager seems engaged but the day is busy.',
-        morale,
+        morale_delta,
         morale_rationale: 'Mixed signals from the day so far.',
       };
-      // Re-validate so any schema mismatch surfaces in the test.
       return schemaArg.parse(turn);
     },
   };
@@ -230,48 +231,54 @@ describe('runner integration (in-memory DB + stub LLM)', () => {
 
     await runner.run(runId);
 
-    // Run status: completed.
     const finalRun = await db.runs.byId(runId);
     expect(finalRun?.status).toBe('completed');
     expect(finalRun?.roundsCompleted).toBe(2);
 
-    // Per-round structure: 2 round rows.
     const rounds = await db.rounds.byRunId(runId);
     expect(rounds.map((r) => r.roundIndex)).toEqual([1, 2]);
 
-    // Interaction count: per round, N manager 1:1s + N peer pairs (K=N).
-    // 3 workers × 2 phases × 2 rounds = 12 interactions.
     const allInteractions = await db.interactions.byAvatar(runId, managerId);
     expect(allInteractions).toHaveLength(2 * 3); // manager appears in 6 1:1s
-    // Peer interactions don't include the manager — count via worker[0].
     const w0Interactions = await db.interactions.byAvatar(runId, workerIds[0]!);
-    // Each round: 1 manager 1:1 + appears in some peer pairs (depends on
-    // sampling). Verify *every* w0 interaction belongs to round 1 or 2 and
-    // has order_in_round in [0, 5].
     for (const it of w0Interactions) {
       expect([1, 2]).toContain(it.roundIndex);
       expect(it.orderInRound).toBeGreaterThanOrEqual(0);
       expect(it.orderInRound).toBeLessThan(6);
     }
 
-    // order_in_round is unique per round.
     const r1Interactions = w0Interactions.filter((i) => i.roundIndex === 1);
     const r1Orders = new Set(r1Interactions.map((i) => i.orderInRound));
     expect(r1Orders.size).toBe(r1Interactions.length);
 
-    // Manager-side morale fields are NULL on manager 1:1 rows.
+    // Manager-side delta fields are NULL on manager 1:1 rows; responder
+    // (worker) emitted a signed delta.
     const managerLed = w0Interactions.filter(
       (i) => i.initiatorAvatarId === managerId,
     );
     for (const it of managerLed) {
-      expect(it.initiatorMorale).toBeNull();
+      expect(it.initiatorMoraleDelta).toBeNull();
       expect(it.initiatorMoraleRationale).toBeNull();
       expect(it.initiatorSelfPerception).toBeNull();
-      expect(typeof it.responderMorale).toBe('number');
+      expect(typeof it.responderMoraleDelta).toBe('number');
+      expect(it.responderMoraleDelta).toBeGreaterThanOrEqual(-10);
+      expect(it.responderMoraleDelta).toBeLessThanOrEqual(10);
       expect(it.responderSelfPerception).not.toBeNull();
     }
 
-    // round_avatar: every round writes one row per avatar (3 workers + 1 mgr).
+    // Peer rows have BOTH sides populated — the initiator emitted a delta in
+    // their reflection (call 2 after seeing the reply).
+    const peerRows = w0Interactions.filter(
+      (i) => i.initiatorAvatarId !== managerId,
+    );
+    for (const it of peerRows) {
+      expect(typeof it.initiatorMoraleDelta).toBe('number');
+      expect(it.initiatorMoraleRationale).not.toBeNull();
+      expect(it.initiatorSelfPerception).not.toBeNull();
+      expect(typeof it.responderMoraleDelta).toBe('number');
+    }
+
+    // round_avatar.morale stays as the running absolute total in [0, 100].
     const allRoundAvatars = await db.roundAvatars.byRunId(runId);
     expect(allRoundAvatars).toHaveLength(2 * 4);
     const managerRA = allRoundAvatars.filter((r) => r.avatarId === managerId);
@@ -280,8 +287,13 @@ describe('runner integration (in-memory DB + stub LLM)', () => {
       expect(r.morale).toBeNull();
       expect(r.paperSold).toBeNull();
     }
+    for (const r of allRoundAvatars) {
+      if (r.morale !== null) {
+        expect(r.morale).toBeGreaterThanOrEqual(0);
+        expect(r.morale).toBeLessThanOrEqual(100);
+      }
+    }
 
-    // Run-level paper total = sum of worker paper_sold across all rounds.
     const workerRA = allRoundAvatars.filter((r) =>
       workerIds.includes(r.avatarId),
     );
@@ -291,7 +303,6 @@ describe('runner integration (in-memory DB + stub LLM)', () => {
     );
     expect(finalRun?.paperTotal).toBe(expectedPaperTotal);
 
-    // Dashboard shape via toRunDetail.
     const avatars = await db.avatars.byRunId(runId);
     const detail = toRunDetail({
       run: finalRun!,
@@ -314,12 +325,10 @@ describe('runner integration (in-memory DB + stub LLM)', () => {
     expect(dashboardWorker.morale_curve).toHaveLength(2);
     expect(dashboardWorker.morale_curve[0]).not.toBeNull();
     expect(dashboardWorker.paper_total).toBeGreaterThanOrEqual(0);
-    // situation_tag_seed must NOT be in the public config.
     expect(
       'situation_tag_seed' in (detail.config as Record<string, unknown>),
     ).toBe(false);
 
-    // Drilldown shape via toAvatarDetail (worker 0).
     const subjectRoundAvatars = await db.roundAvatars.byAvatar(
       runId,
       workerIds[0]!,
@@ -342,7 +351,6 @@ describe('runner integration (in-memory DB + stub LLM)', () => {
       expect(r.situation_tag).not.toBe('');
       expect(r.self_perception).not.toBeNull();
     }
-    // self_perception fields are stripped from interaction shapes.
     for (const it of drill.interactions) {
       expect(
         'initiator_self_perception' in (it as Record<string, unknown>),
@@ -352,14 +360,18 @@ describe('runner integration (in-memory DB + stub LLM)', () => {
       ).toBe(false);
     }
 
-    // LLM call count: per round = 2N (manager 1:1 = 1 free + 1 structured) + 2K (peer = 2 structured each).
-    // Free-text: N per round = 6 total. Structured: N + 2K = 9 per round = 18 total.
+    // LLM call count per round (N=K=3):
+    //   - Manager free-text: N
+    //   - Worker 1:1 ReactionTurn: N
+    //   - Peer per pair: 1 OpeningTurn + 1 ReactionTurn + 1 InitiatorReflection = 3K
+    // Total per round: N free + (N + 3K) structured.
+    // For 2 rounds: free = 2N = 6, structured = 2(N + 3K) = 24.
     const completeCalls = llm.callLog.filter((c) => c.kind === 'complete');
     const structuredCalls = llm.callLog.filter(
       (c) => c.kind === 'completeStructured',
     );
-    expect(completeCalls).toHaveLength(2 * 3); // 1 per worker × 2 rounds
-    expect(structuredCalls).toHaveLength(2 * (3 + 2 * 3)); // worker 1:1 + 2*K peer per round
+    expect(completeCalls).toHaveLength(2 * 3);
+    expect(structuredCalls).toHaveLength(2 * (3 + 3 * 3));
   });
 
   it('peer phase is skipped cleanly when there is only one worker', async () => {
@@ -374,13 +386,12 @@ describe('runner integration (in-memory DB + stub LLM)', () => {
     const finalRun = await db.runs.byId(runId);
     expect(finalRun?.status).toBe('completed');
 
-    // 1 manager 1:1 + 0 peer = 1 interaction per round, 2 total.
     const allRoundAvatars = await db.roundAvatars.byRunId(runId);
     const someAvatarId = allRoundAvatars[0]!.avatarId;
     const interactions = await db.interactions.byAvatar(runId, someAvatarId);
     expect(interactions.length).toBeLessThanOrEqual(2);
 
-    // Only structured calls = worker 1:1 (1 per round) — no peers.
+    // Only structured calls = worker 1:1 ReactionTurn (1 per round) — no peers.
     const structured = llm.callLog.filter(
       (c) => c.kind === 'completeStructured',
     );
@@ -403,7 +414,7 @@ describe('runner integration (in-memory DB + stub LLM)', () => {
         return schemaArg.parse({
           message: 'ok',
           updated_self_perception: 'sp',
-          morale: 50,
+          morale_delta: 0,
           morale_rationale: 'fine',
         });
       },

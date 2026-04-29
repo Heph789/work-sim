@@ -1,51 +1,62 @@
-// Prompt builders for the four LLM call sites per round (per worker):
+// Prompt builders for the LLM call sites per round (per worker):
 //
-//   1. buildManagerPrompt        — manager 1:1, free-text completion
-//   2. buildWorker1on1Prompt     — worker side of the 1:1, structured
-//   3. buildPeerInitiatorPrompt  — peer initiator, structured
-//   4. buildPeerResponderPrompt  — peer responder, structured
+//   1. buildManagerPrompt                  — manager 1:1, free-text completion
+//   2. buildWorker1on1Prompt               — worker side of the 1:1, ReactionTurn
+//   3. buildPeerInitiatorOpeningPrompt     — peer initiator call 1, OpeningTurn
+//   4. buildPeerResponderPrompt            — peer responder, ReactionTurn
+//   5. buildPeerInitiatorReflectionPrompt  — peer initiator call 2, after reply
 //
-// All four split system/user with the static prefix (profile + rules) first
-// so providers' automatic prompt caching applies to the largest possible
-// chunk.
+// All split system/user with the static prefix (profile + rules) first so
+// providers' automatic prompt caching applies to the largest possible chunk.
 //
 // The manager prompt's information asymmetry is hard-coded here per
 // docs/many-workers/design.md §7: the manager prompt NEVER includes any
 // worker's morale, morale_rationale, self_perception, or baseline_output.
+//
+// Reactive-morale principle: avatars never see their own current morale.
+// They emit a SIGNED DELTA in [-10, +10] judging this exchange in isolation;
+// the engine accumulates the running 0..100 total. And morale only updates
+// in REACTION to a stimulus — the peer initiator emits no morale or
+// self-perception in their opening turn (they haven't seen the reply yet);
+// both updates are deferred to the reflection call after the reply lands.
 
-import type {
-  AvatarProfile,
-  Message,
-  SignedDelta,
-} from '@work-sim/shared';
-import { getSituationTag, type SituationTagId } from '@work-sim/shared';
+import type { AvatarProfile, Message, SignedDelta } from "@work-sim/shared";
+import { getSituationTag, type SituationTagId } from "@work-sim/shared";
 
-import type { InteractionRow, AvatarRow } from '../db/schema.js';
+import type { InteractionRow, AvatarRow } from "../db/schema.js";
 import {
   formatPairHistory,
   formatTodaySoFar,
   formatTranscript,
-} from './transcript.js';
+} from "./transcript.js";
 
-/** Bumped whenever any of the four prompt skeletons changes. */
-export const PROMPT_TEMPLATE_VERSION = 'v2';
+/** Bumped whenever any of the prompt skeletons changes. */
+export const PROMPT_TEMPLATE_VERSION = "v3";
 
 /**
  * Default initial self-perception for every worker on round 1 before they've
  * participated in any interaction. Replaced by their own emitted
- * `updated_self_perception` after the first interaction they're in.
+ * `updated_self_perception` after the first reaction they emit.
  */
 export const INITIAL_SELF_PERCEPTION =
   "I just started this job. I'm still figuring out what to expect from my manager and coworkers.";
 
-const NO_PRIOR_INTERACTIONS = 'No prior interactions yet.';
+const NO_PRIOR_INTERACTIONS = "No prior interactions yet.";
 const NO_DAY_SO_FAR = "You haven't done much yet today.";
 const NO_PAIR_HISTORY = "You haven't spoken with them before in this run.";
+
+/**
+ * Shared instruction block for any structured turn that emits a morale
+ * delta + rationale. The exchange is judged in isolation — the avatar does
+ * NOT know their current absolute morale.
+ */
+const MORALE_DELTA_FIELDS = `- "morale_delta": An integer between -10 and +10 representing how this exchange shifted your engagement and motivation. 0 means no change. Positive means more energized, negative means more demoralized.
+- "morale_rationale": One short sentence explaining the delta — what about this exchange shifted (or didn't shift) how you feel.`;
 
 function profileToRowLike(p: AvatarProfile): AvatarRow {
   return {
     id: p.id,
-    runId: '',
+    runId: "",
     roleInSim: p.role_in_sim,
     name: p.name,
     roleLabel: p.role_label,
@@ -125,8 +136,8 @@ ${transcript || NO_PRIOR_INTERACTIONS}
 Now, what do you say to ${worker.name}?`;
 
   return [
-    { role: 'system', content: system },
-    { role: 'user', content: user },
+    { role: "system", content: system },
+    { role: "user", content: user },
   ];
 }
 
@@ -158,8 +169,7 @@ You report to ${manager.name}, the ${manager.role_label}. You also work alongsid
 You will respond with a JSON object containing:
 - "message": Your reply to ${manager.name}, in 1–3 short sentences. Speak naturally. No narration of physical actions. Stay in character.
 - "updated_self_perception": A 1–2 sentence update to your private internal monologue based on this exchange. Mention specific people by name where relevant. ${manager.name} cannot see this.
-- "morale": An integer 0–100 representing your engagement and motivation right now. 50 is neutral. Below 30 means demoralized. Above 70 means energized.
-- "morale_rationale": One short sentence explaining why this morale, given the day.`;
+${MORALE_DELTA_FIELDS}`;
 
   const todaySoFar = formatTodaySoFar({
     interactionsThisRound: args.todayInteractionsForWorker,
@@ -191,14 +201,14 @@ ${manager.name} just said to you:
 Respond now.`;
 
   return [
-    { role: 'system', content: system },
-    { role: 'user', content: user },
+    { role: "system", content: system },
+    { role: "user", content: user },
   ];
 }
 
-// ─── 3. Peer initiator ──────────────────────────────────────────────────────
+// ─── 3. Peer initiator: opening (call 1, message only) ──────────────────────
 
-export function buildPeerInitiatorPrompt(args: {
+export function buildPeerInitiatorOpeningPrompt(args: {
   self: AvatarProfile;
   partner: AvatarProfile;
   situationTag: SituationTagId;
@@ -207,49 +217,8 @@ export function buildPeerInitiatorPrompt(args: {
   pairHistory: ReadonlyArray<InteractionRow>;
   avatarsById: ReadonlyMap<string, AvatarRow>;
 }): Message[] {
-  return buildPeerSystemAndUser({
-    ...args,
-    framing: 'initiator',
-    initiatorMessage: null,
-  });
-}
-
-// ─── 4. Peer responder ──────────────────────────────────────────────────────
-
-export function buildPeerResponderPrompt(args: {
-  self: AvatarProfile;
-  partner: AvatarProfile;
-  situationTag: SituationTagId;
-  selfPerception: string;
-  todayInteractionsForSelf: ReadonlyArray<InteractionRow>;
-  pairHistory: ReadonlyArray<InteractionRow>;
-  initiatorMessage: string;
-  avatarsById: ReadonlyMap<string, AvatarRow>;
-}): Message[] {
-  return buildPeerSystemAndUser({
-    ...args,
-    framing: 'responder',
-  });
-}
-
-function buildPeerSystemAndUser(args: {
-  self: AvatarProfile;
-  partner: AvatarProfile;
-  situationTag: SituationTagId;
-  selfPerception: string;
-  todayInteractionsForSelf: ReadonlyArray<InteractionRow>;
-  pairHistory: ReadonlyArray<InteractionRow>;
-  avatarsById: ReadonlyMap<string, AvatarRow>;
-  framing: 'initiator' | 'responder';
-  initiatorMessage?: string | null;
-}): Message[] {
-  const { self, partner, framing } = args;
+  const { self, partner } = args;
   const situation = getSituationTag(args.situationTag);
-
-  const engagement =
-    framing === 'initiator'
-      ? `You work alongside several other employees. You are about to have a brief hallway/break-room exchange with your coworker ${partner.name}, who works as a ${partner.role_label}.`
-      : `You work alongside several other employees. You are about to RESPOND to your coworker ${partner.name}, who works as a ${partner.role_label} and just spoke to you in the hallway.`;
 
   const system = `You are ${self.name}, a ${self.role_label} at a paper company.
 
@@ -259,13 +228,10 @@ ${self.personality}
 What you value at work:
 ${self.values}
 
-${engagement}
+You work alongside several other employees. You are about to have a brief hallway/break-room exchange with your coworker ${partner.name}, who works as a ${partner.role_label}.
 
 You will respond with a JSON object containing:
-- "message": What you say to ${partner.name}, in 1–3 short sentences. Speak naturally. No narration of physical actions. Stay in character.
-- "updated_self_perception": A 1–2 sentence update to your private internal monologue based on this exchange. Mention specific people by name where relevant. ${partner.name} cannot see this.
-- "morale": An integer 0–100 representing your engagement and motivation right now. 50 is neutral. Below 30 means demoralized. Above 70 means energized.
-- "morale_rationale": One short sentence explaining why this morale, given the day.`;
+- "message": What you say to ${partner.name}, in 1–3 short sentences. Speak naturally. No narration of physical actions. Stay in character.`;
 
   const todaySoFar = formatTodaySoFar({
     interactionsThisRound: args.todayInteractionsForSelf,
@@ -282,13 +248,69 @@ You will respond with a JSON object containing:
 
   const partnerNameUpper = partner.name.toUpperCase();
 
-  const closing =
-    framing === 'initiator'
-      ? `You step into the hallway and see ${partner.name}. What do you say?`
-      : `${partner.name} just said to you:
-"${args.initiatorMessage ?? ''}"
+  const user = `SITUATION TODAY: ${situation.description}
 
-Respond now.`;
+YOUR CURRENT INTERNAL STATE (private):
+"${args.selfPerception}"
+
+YOUR DAY SO FAR:
+${todaySoFar || NO_DAY_SO_FAR}
+
+PRIOR HISTORY WITH ${partnerNameUpper} (across this run):
+${pairHistoryText || NO_PAIR_HISTORY}
+
+You step into the hallway and see ${partner.name}. What do you say?`;
+
+  return [
+    { role: "system", content: system },
+    { role: "user", content: user },
+  ];
+}
+
+// ─── 4. Peer responder ──────────────────────────────────────────────────────
+
+export function buildPeerResponderPrompt(args: {
+  self: AvatarProfile;
+  partner: AvatarProfile;
+  situationTag: SituationTagId;
+  selfPerception: string;
+  todayInteractionsForSelf: ReadonlyArray<InteractionRow>;
+  pairHistory: ReadonlyArray<InteractionRow>;
+  initiatorMessage: string;
+  avatarsById: ReadonlyMap<string, AvatarRow>;
+}): Message[] {
+  const { self, partner } = args;
+  const situation = getSituationTag(args.situationTag);
+
+  const system = `You are ${self.name}, a ${self.role_label} at a paper company.
+
+Your personality:
+${self.personality}
+
+What you value at work:
+${self.values}
+
+You work alongside several other employees. You are about to RESPOND to your coworker ${partner.name}, who works as a ${partner.role_label} and just spoke to you in the hallway.
+
+You will respond with a JSON object containing:
+- "message": What you say to ${partner.name}, in 1–3 short sentences. Speak naturally. No narration of physical actions. Stay in character.
+- "updated_self_perception": A 1–2 sentence update to your private internal monologue based on this exchange. Mention specific people by name where relevant. ${partner.name} cannot see this.
+${MORALE_DELTA_FIELDS}`;
+
+  const todaySoFar = formatTodaySoFar({
+    interactionsThisRound: args.todayInteractionsForSelf,
+    avatarId: self.id,
+    avatarsById: args.avatarsById,
+  });
+
+  const pairHistoryText = formatPairHistory({
+    interactions: args.pairHistory,
+    avatarA: profileToRowLike(self),
+    avatarB: profileToRowLike(partner),
+    avatarsById: args.avatarsById,
+  });
+
+  const partnerNameUpper = partner.name.toUpperCase();
 
   const user = `SITUATION TODAY: ${situation.description}
 
@@ -301,10 +323,83 @@ ${todaySoFar || NO_DAY_SO_FAR}
 PRIOR HISTORY WITH ${partnerNameUpper} (across this run):
 ${pairHistoryText || NO_PAIR_HISTORY}
 
-${closing}`;
+${partner.name} just said to you:
+"${args.initiatorMessage}"
+
+Respond now.`;
 
   return [
-    { role: 'system', content: system },
-    { role: 'user', content: user },
+    { role: "system", content: system },
+    { role: "user", content: user },
+  ];
+}
+
+// ─── 5. Peer initiator: reflection (call 2, after seeing reply) ─────────────
+
+export function buildPeerInitiatorReflectionPrompt(args: {
+  self: AvatarProfile;
+  partner: AvatarProfile;
+  situationTag: SituationTagId;
+  selfPerception: string;
+  todayInteractionsForSelf: ReadonlyArray<InteractionRow>;
+  pairHistory: ReadonlyArray<InteractionRow>;
+  initiatorMessage: string;
+  responderMessage: string;
+  avatarsById: ReadonlyMap<string, AvatarRow>;
+}): Message[] {
+  const { self, partner } = args;
+  const situation = getSituationTag(args.situationTag);
+
+  const system = `You are ${self.name}, a ${self.role_label} at a paper company.
+
+Your personality:
+${self.personality}
+
+What you value at work:
+${self.values}
+
+You just had a brief hallway exchange with your coworker ${partner.name}, who works as a ${partner.role_label}. Now reflect privately on how it landed.
+
+You will respond with a JSON object containing:
+- "updated_self_perception": A 1–2 sentence update to your private internal monologue based on this exchange. Mention specific people by name where relevant. ${partner.name} cannot see this.
+${MORALE_DELTA_FIELDS}`;
+
+  const todaySoFar = formatTodaySoFar({
+    interactionsThisRound: args.todayInteractionsForSelf,
+    avatarId: self.id,
+    avatarsById: args.avatarsById,
+  });
+
+  const pairHistoryText = formatPairHistory({
+    interactions: args.pairHistory,
+    avatarA: profileToRowLike(self),
+    avatarB: profileToRowLike(partner),
+    avatarsById: args.avatarsById,
+  });
+
+  const partnerNameUpper = partner.name.toUpperCase();
+
+  const user = `SITUATION TODAY: ${situation.description}
+
+YOUR CURRENT INTERNAL STATE (private):
+"${args.selfPerception}"
+
+YOUR DAY SO FAR:
+${todaySoFar || NO_DAY_SO_FAR}
+
+PRIOR HISTORY WITH ${partnerNameUpper} (across this run):
+${pairHistoryText || NO_PAIR_HISTORY}
+
+You stepped into the hallway and said to ${partner.name}:
+"${args.initiatorMessage}"
+
+${partner.name} replied:
+"${args.responderMessage}"
+
+Now reflect on the exchange.`;
+
+  return [
+    { role: "system", content: system },
+    { role: "user", content: user },
   ];
 }

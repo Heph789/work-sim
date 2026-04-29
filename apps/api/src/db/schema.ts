@@ -172,9 +172,13 @@ export const roundAvatar = sqliteTable(
  * the engine assigns 0-based order_in_round so 1:1s are 0..N-1 and peer
  * convos N..2N-1 within a round.
  *
- * Initiator-side morale/rationale/self_perception are NULL when the initiator
- * is the manager (v1). Responder-side is always populated — responders are
- * always workers in v1 (manager→worker 1:1, or peer worker↔worker).
+ * Morale columns store the RAW signed delta the LLM emitted (range [-10, 10]),
+ * unweighted. The running absolute morale lives on round_avatar.morale; the
+ * weighting (×2 for manager 1:1) is applied in-memory in the runner before
+ * summation.
+ *
+ * Initiator-side delta/rationale/self_perception are NULL when the initiator
+ * is the manager (v1). Responder-side is always populated.
  */
 export const interaction = sqliteTable(
   'interaction',
@@ -200,10 +204,10 @@ export const interaction = sqliteTable(
       .references(() => avatar.id),
     initiatorMessage: text('initiator_message').notNull(),
     responderMessage: text('responder_message').notNull(),
-    initiatorMorale: integer('initiator_morale'),
+    initiatorMoraleDelta: integer('initiator_morale_delta'),
     initiatorMoraleRationale: text('initiator_morale_rationale'),
     initiatorSelfPerception: text('initiator_self_perception'),
-    responderMorale: integer('responder_morale').notNull(),
+    responderMoraleDelta: integer('responder_morale_delta').notNull(),
     responderMoraleRationale: text('responder_morale_rationale').notNull(),
     responderSelfPerception: text('responder_self_perception').notNull(),
     createdAt: integer('created_at').notNull(),
