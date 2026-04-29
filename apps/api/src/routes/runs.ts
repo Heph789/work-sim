@@ -2,11 +2,12 @@
 // kick off the runner, expose read endpoints. No business logic beyond shape.
 //
 // Endpoints registered:
-//   POST /runs       — create a new run; fire-and-forget the runner.
-//   GET  /runs       — list newest-first, cursor-paginated.
-//   GET  /runs/:id   — dashboard read (polled every 2s by the dashboard view).
+//   POST /runs                    — create a new run; fire-and-forget the runner.
+//   GET  /runs                    — list newest-first, cursor-paginated.
+//   GET  /runs/:id                — dashboard read (polled every 2s).
+//   GET  /runs/:id/interactions   — full interaction timeline for the run.
 //
-// The drilldown route lives in routes/avatars.ts.
+// The avatar drilldown route lives in routes/avatars.ts.
 
 import type { FastifyPluginAsync } from 'fastify';
 import { v4 as uuid } from 'uuid';
@@ -27,6 +28,7 @@ import {
   ListRunsQuerySchema,
   toRunListItem,
   toRunDetail,
+  toRunInteractionsFeed,
 } from './schemas.js';
 
 /**
@@ -154,6 +156,27 @@ export const runsRoutes: FastifyPluginAsync<RunsRouteDeps> = async (
       helpers: { teamExpected, workerExpectedShare, signedDelta },
     });
   });
+
+  // ── GET /runs/:id/interactions ────────────────────────────────────────────
+  // Full interaction timeline for the run, ordered by (round_index,
+  // order_in_round). Strips self_perception from both sides (privacy rule).
+  // Kept off the dashboard polling response to keep that payload small.
+  app.get<{ Params: { id: string } }>(
+    '/runs/:id/interactions',
+    async (req, reply) => {
+      const runRow = await db.runs.byId(req.params.id);
+      if (!runRow) {
+        reply.code(404);
+        return { error: 'run not found' };
+      }
+      const [interactions, allAvatars] = await Promise.all([
+        db.interactions.byRunId(runRow.id),
+        db.avatars.byRunId(runRow.id),
+      ]);
+      const avatarsById = new Map(allAvatars.map((a) => [a.id, a]));
+      return toRunInteractionsFeed({ interactions, avatarsById });
+    },
+  );
 
   // ── Reserved endpoints (slot exists; not implemented in v1) ──────────────
   // POST /runs/:id/cancel

@@ -19,6 +19,7 @@ import type {
   DrilldownRoundEntry,
   RunConfig,
   RunDetail,
+  RunInteractionsFeed,
   RunListItem,
   RunStatus,
   SignedDelta,
@@ -416,3 +417,46 @@ export function toAvatarDetail(args: {
   };
 }
 
+// ─── Response shaper — run-level interaction feed ───────────────────────────
+
+/**
+ * Project the full interaction timeline for a run. Both sides' self_perception
+ * are stripped via the `InteractionRowLike` interface, which omits those
+ * fields — same structural privacy mechanism as `toAvatarDetail`. Caller is
+ * responsible for sort order; this shaper does not re-sort.
+ */
+export function toRunInteractionsFeed(args: {
+  interactions: InteractionRowLike[];
+  avatarsById: ReadonlyMap<string, AvatarRowLike>;
+}): RunInteractionsFeed {
+  const { interactions, avatarsById } = args;
+  return {
+    interactions: interactions.map((it) => {
+      const init = avatarsById.get(it.initiatorAvatarId);
+      const resp = avatarsById.get(it.responderAvatarId);
+      return {
+        id: it.id,
+        round_index: it.roundIndex,
+        order_in_round: it.orderInRound,
+        situation_tag: it.situationTag,
+        initiator: {
+          id: it.initiatorAvatarId,
+          name: init?.name ?? '',
+          role_in_sim: init?.roleInSim ?? 'worker',
+        },
+        responder: {
+          id: it.responderAvatarId,
+          name: resp?.name ?? '',
+          role_in_sim: resp?.roleInSim ?? 'worker',
+        },
+        initiator_message: it.initiatorMessage,
+        responder_message: it.responderMessage,
+        initiator_morale_delta: it.initiatorMoraleDelta,
+        initiator_morale_rationale: it.initiatorMoraleRationale,
+        responder_morale_delta: it.responderMoraleDelta,
+        responder_morale_rationale: it.responderMoraleRationale,
+        created_at: it.createdAt,
+      };
+    }),
+  };
+}

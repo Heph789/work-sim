@@ -7,6 +7,7 @@
 import type {
   AgentProfile,
   RunDetail,
+  RunInteractionsFeed,
   RunListItem,
 } from '@work-sim/shared';
 
@@ -97,6 +98,27 @@ export async function getRun(id: string): Promise<RunDetail> {
     throw new ApiError(res.status, `GET /runs/${id} failed (${res.status})`, body);
   }
   return (await res.json()) as RunDetail;
+}
+
+/**
+ * GET /runs/:id/interactions — full interaction timeline ordered by
+ * (round_index, order_in_round). `self_perception` is stripped server-side.
+ */
+export async function getRunInteractions(id: string): Promise<RunInteractionsFeed> {
+  const res = await fetch(
+    `${API_BASE}/runs/${encodeURIComponent(id)}/interactions`,
+    { headers: { Accept: 'application/json' } },
+  );
+  if (res.status === 404) throw new RunNotFoundError(id);
+  if (!res.ok) {
+    const body = await readJson(res);
+    throw new ApiError(
+      res.status,
+      `GET /runs/${id}/interactions failed (${res.status})`,
+      body,
+    );
+  }
+  return (await res.json()) as RunInteractionsFeed;
 }
 
 /**

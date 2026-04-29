@@ -250,6 +250,11 @@ export interface InteractionsRepo {
     avatarA: string,
     avatarB: string,
   ): Promise<InteractionRow[]>;
+  /**
+   * All interactions for a run, ordered by (round_index asc, order_in_round
+   * asc). Drives the run-level interaction timeline.
+   */
+  byRunId(runId: string): Promise<InteractionRow[]>;
 }
 
 export function createInteractionsRepo(db: DB): InteractionsRepo {
@@ -292,6 +297,14 @@ export function createInteractionsRepo(db: DB): InteractionsRepo {
             ),
           ),
         )
+        .orderBy(asc(interaction.roundIndex), asc(interaction.orderInRound))
+        .all();
+    },
+    async byRunId(runId) {
+      return db
+        .select()
+        .from(interaction)
+        .where(eq(interaction.runId, runId))
         .orderBy(asc(interaction.roundIndex), asc(interaction.orderInRound))
         .all();
     },

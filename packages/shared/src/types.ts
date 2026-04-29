@@ -261,6 +261,15 @@ export interface AvatarDetail {
   interactions: DrilldownInteraction[];
 }
 
+/**
+ * Response envelope for `GET /runs/:id/interactions`. Full interaction
+ * timeline for the run, ordered by (round_index, order_in_round). Both sides'
+ * `self_perception` are stripped — same privacy rule as the drilldown feed.
+ */
+export interface RunInteractionsFeed {
+  interactions: DrilldownInteraction[];
+}
+
 // ─── Request body type ──────────────────────────────────────────────────────
 
 /**
