@@ -1,10 +1,13 @@
-// Deterministic scoring helpers consumed by the runner. The LLM never emits
-// paper-sales numbers directly — it emits a subjective `morale` integer and
-// the engine maps that to output via this formula. This decoupling means
-// game-balance tuning is a code change in one place rather than a
-// prompt-engineering exercise.
+// Deterministic scoring helpers consumed by the runner and by the dashboard
+// response shaper. The LLM never emits paper-sales numbers directly — it
+// emits a subjective `morale` integer and the engine maps that to output via
+// these formulas. This decoupling keeps balance tuning a code change in one
+// place.
 //
-// Per locked-decisions.md #4.
+// The prototype's `paceDescription` is gone — the manager prompt now uses
+// raw signed deltas (driven by `signedDelta` here), not a categorical phrase.
+
+import type { SignedDelta } from '@work-sim/shared';
 
 /**
  * Map (baseline, morale) → integer paper sold this round.
@@ -13,37 +16,52 @@
  *   morale=50  → output=baseline   (neutral baseline)
  *   morale=100 → output=2*baseline (energized; double output)
  *
- * Linear, integer-rounded. No floor/ceiling beyond what 0–100 morale already
- * implies.
+ * Linear, integer-rounded.
  */
 export function paperSold(baselineOutput: number, morale: number): number {
   return Math.round((baselineOutput * morale) / 50);
 }
 
 /**
- * Plain-English pace summary for the manager's prompt. The LLM does the
- * dramatic interpretation; this just classifies the ratio of actual-to-expected
- * paper at the current point in the run.
- *
- * Thresholds (per simulation-engine.md):
- *   ≥ 1.15 ahead of pace
- *   ≥ 0.95 on pace
- *   ≥ 0.75 slightly behind pace
- *   <  0.75 well behind pace
- *
- * Special-cased before round 1 to avoid divide-by-zero on `expected = 0`.
+ * What the team SHOULD have produced by `roundsCompleted` if pace were even:
+ * `round(target_paper * roundsCompleted / roundsTotal)`. Injected into the
+ * manager prompt and used by the dashboard's team_delta tile.
  */
-export function paceDescription(args: {
-  paperTotal: number;
+export function teamExpected(args: {
   targetPaper: number;
   roundsCompleted: number;
   roundsTotal: number;
-}): string {
-  if (args.roundsCompleted === 0) return 'just starting out';
-  const expected = (args.targetPaper * args.roundsCompleted) / args.roundsTotal;
-  const ratio = args.paperTotal / expected;
-  if (ratio >= 1.15) return 'ahead of pace';
-  if (ratio >= 0.95) return 'on pace';
-  if (ratio >= 0.75) return 'slightly behind pace';
-  return 'well behind pace';
+}): number {
+  // TODO: return Math.round(targetPaper * roundsCompleted / roundsTotal);
+  void args;
+  return 0;
+}
+
+/**
+ * What a single worker SHOULD have produced by `roundsCompleted` if their
+ * share of the team target were even and the run were on pace:
+ * `round((target_paper / num_workers) * (roundsCompleted / roundsTotal))`.
+ *
+ * Injected into the manager prompt under "ABOUT {{worker}}" so the manager
+ * can react to per-worker pace without seeing morale.
+ */
+export function workerExpectedShare(args: {
+  targetPaper: number;
+  numWorkers: number;
+  roundsCompleted: number;
+  roundsTotal: number;
+}): number {
+  // TODO: return Math.round((targetPaper / numWorkers) * (roundsCompleted / roundsTotal));
+  void args;
+  return 0;
+}
+
+/**
+ * Render `actual - expected` as an absolute magnitude + direction. Used by
+ * both the manager prompt ("Team is {{abs}} units {{above|below}} expected")
+ * and the dashboard ({ team_delta, worker_delta }).
+ */
+export function signedDelta(actual: number, expected: number): SignedDelta {
+  const d = actual - expected;
+  return { abs: Math.abs(d), direction: d >= 0 ? 'above' : 'below' };
 }

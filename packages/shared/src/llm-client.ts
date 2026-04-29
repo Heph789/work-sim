@@ -3,14 +3,20 @@
 // implement it. Switching providers is a one-line change in
 // apps/api/src/llm/index.ts (the factory).
 //
-// See docs/initial-prototype/llm-client.md for full rationale.
+// This file is unchanged in shape from the prototype's `llm-client.ts` apart
+// from the structured-output schema: `WorkerResponseSchema` is gone,
+// `AvatarTurnSchema` replaces it. Every structured emission in the
+// many-workers iteration uses the unified avatar-turn shape:
+//   - worker side of a manager 1:1
+//   - peer initiator
+//   - peer responder
 
 // DEPENDENCY: zod — already in packages/shared/package.json.
 import { z } from 'zod';
 
 /**
  * Chat-shaped message tuple. Modeled on OpenAI's shape because most provider
- * SDKs converge on it; the (future) Anthropic implementation maps internally.
+ * SDKs converge on it; the future Anthropic implementation maps internally.
  */
 export type Message =
   | { role: 'system'; content: string }
@@ -19,7 +25,7 @@ export type Message =
 
 /**
  * Per-call generation parameters. Model name is *not* hardcoded in any
- * provider — it comes from `runs.config_json.model` so different runs can use
+ * provider — it comes from `run.config_json.model` so different runs can use
  * different models without restarting the server.
  */
 export interface LLMCallOptions {
@@ -35,14 +41,11 @@ export interface LLMCallOptions {
 /**
  * The entire LLM surface used by the engine. Two methods.
  *
- * - `complete` returns free text — used for the manager turn.
- * - `completeStructured` returns a Zod-validated object — used for the worker
- *   turn (`{ message, updated_self_perception, morale }`). Implementations
- *   re-validate the parsed response with the supplied schema as defense in
- *   depth.
+ * - `complete` returns free text — used only for the manager's side of a 1:1.
+ * - `completeStructured` returns a Zod-validated object — used for everything
+ *   that emits an AvatarTurn (worker 1:1 reply, peer initiator, peer responder).
  *
  * Streaming, embeddings, and prompt-cache primitives are deliberately absent.
- * Adding `completeStream` later is additive.
  */
 export interface LLMClient {
   /** Free-text completion. Throws on persistent failure (after retries). */
@@ -64,36 +67,40 @@ export interface LLMClient {
 }
 
 /**
- * Worker-turn structured output schema. Lives next to the LLMClient interface
- * so the engine and the LLM layer agree on the wire shape.
+ * Unified avatar-turn structured output schema. Replaces the prototype's
+ * `WorkerResponseSchema`. Every structured emission in the engine is shaped
+ * by this schema regardless of context — the prompt's framing tells the
+ * model who they're talking to, but the wire shape is identical.
  *
- * The morale int is the heart of the prototype — it drives paper_sold via a
- * deterministic formula in the engine (see scoring.ts).
+ * The `morale` int is the heart of the sim — it drives `paper_sold` via the
+ * deterministic formula in apps/api/src/engine/scoring.ts.
  */
-export const WorkerResponseSchema = z.object({
-  /** What the worker says back to the manager. 1–3 short sentences. */
+export const AvatarTurnSchema = z.object({
+  /** What the avatar says. 1–3 short sentences (rule lives in the prompt). */
   message: z.string().min(1).max(2000),
 
   /**
-   * Worker's updated private self-perception. Next round's worker prompt
-   * reads this; manager prompts never see it. Preserves the asymmetry that
-   * makes the sim interesting (per locked-decisions.md #7).
+   * The avatar's updated private self-perception. Singleton per avatar,
+   * mutated every interaction. Manager prompts NEVER see any worker's
+   * self_perception (information asymmetry, design.md §7); peer prompts only
+   * see the avatar's own.
    */
   updated_self_perception: z.string().min(1).max(1000),
 
   /**
-   * 1–2 sentences explaining WHY morale moved (or didn't) this round.
-   * Forces the model to reason about morale as a delta from prior state
-   * rather than re-anchoring on a default; private to the worker.
-   */
-  morale_rationale: z.string().min(1).max(500),
-
-  /**
-   * 0–100. 50 is neutral; <30 demoralized; >70 energized. The LLM emits this
-   * subjective signal; the engine consumes it deterministically.
+   * 0–100. 50 is neutral. Treat as continuous internal state — drift up or
+   * down from the prior round's value rather than re-anchoring to a default.
+   * The full range should be exercised across a long-enough run.
    */
   morale: z.number().int().min(0).max(100),
+
+  /**
+   * One short sentence explaining WHY this morale, given the day. Forces the
+   * model to reason about the morale delta rather than emitting a hash. Kept
+   * private to the avatar — never appears in another avatar's prompt.
+   */
+  morale_rationale: z.string().min(1).max(500),
 });
 
 /** Inferred TS type — use this in engine code rather than re-declaring. */
-export type WorkerResponse = z.infer<typeof WorkerResponseSchema>;
+export type AvatarTurn = z.infer<typeof AvatarTurnSchema>;

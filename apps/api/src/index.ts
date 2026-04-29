@@ -1,9 +1,8 @@
 // Fastify bootstrap. Wires together the DB, the LLM client, the Runner, and
 // the HTTP routes. Single entrypoint — `pnpm dev` runs this under tsx watch.
 //
-// Process model (per locked-decisions.md): single Node process, single SQLite
-// file, in-process runner. No queue, no workers. Correct for a single-user
-// local prototype.
+// Process model: single Node process, single SQLite file, in-process runner.
+// No queue, no workers. Correct for a single-user local prototype.
 
 // DEPENDENCY: fastify
 import Fastify, { type FastifyInstance } from "fastify";
@@ -14,10 +13,11 @@ import { createAppDb } from "./db/index.js";
 import { createLLMClient } from "./llm/index.js";
 import { Runner } from "./engine/runner.js";
 import { runsRoutes } from "./routes/runs.js";
+import { avatarsRoutes } from "./routes/avatars.js";
 
 /**
- * Build, configure, and start the Fastify app. Exported so tests (when they
- * exist) can construct an instance without binding to a port.
+ * Build, configure, and start the Fastify app. Exported so tests can
+ * construct an instance without binding to a port.
  */
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
@@ -29,6 +29,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   const runner = new Runner(llm, db);
 
   await app.register(runsRoutes, { db, runner });
+  await app.register(avatarsRoutes, { db });
 
   app.get("/healthz", async () => ({ ok: true }));
 
@@ -42,9 +43,6 @@ async function main(): Promise<void> {
   app.log.info(`API listening on :${port}`);
 }
 
-// Top-level await would also work; keeping main() explicit so tests can
-// import buildApp without triggering listen. The import-meta check prevents
-// main() from running when this module is imported (e.g. from a test).
 const isDirectRun = import.meta.url === `file://${process.argv[1]}`;
 if (isDirectRun) {
   main().catch((err) => {

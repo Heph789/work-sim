@@ -1,28 +1,37 @@
-// Cross-boundary type definitions. These are the *wire shapes* — what the API
-// returns and what the web app renders. They intentionally mirror the DB
-// columns but are not the Drizzle row types directly: the DB stores
-// `config_json` as a TEXT blob, while the API returns it as a parsed object.
+// Cross-boundary type definitions for the many-workers iteration. These are
+// the *wire shapes* — what the API returns and what the web app renders.
+// They mirror the DB columns but are not the Drizzle row types directly:
+// the DB stores `config_json` as TEXT, while the API returns it as a parsed
+// object; the dashboard read aggregates per-avatar stats that don't live on
+// any single row.
 //
-// Keeping these in @work-sim/shared means the frontend can import them and
-// know exactly what GET /runs/:id returns without re-declaring shapes.
+// "Avatar" replaces the prototype's "agent" everywhere — code, types,
+// prompts, docs. See docs/many-workers/design.md §Terminology.
 
 /**
- * The two roles a participating agent can hold in a run. The schema is
- * symmetric across these two — manager and worker rows have the same shape —
- * but the runner (v1) only updates worker-side morale / self-perception.
+ * The two roles an avatar can hold in a run. v1 is exactly one manager + N≥1
+ * workers; the schema and types are symmetric so adding a third role later
+ * (e.g. 'customer') is additive.
  */
-export type AgentRole = 'manager' | 'worker';
+export type AvatarRole = 'manager' | 'worker';
 
 /**
- * Snapshot of a single agent's profile, as captured at run-creation time.
- * Lives inside `runs.config_json.agents[]`. Free-form text fields per
- * locked-decisions.md #3; a structured taxonomy may be added alongside later.
+ * Snapshot of a single avatar's profile, as captured at run-creation time.
+ * Lives both in `avatar` table rows AND inside `run.config_json.avatars[]`.
+ * The table is the queryable canonical for FKs; the snapshot is what
+ * guarantees experimental reproducibility.
  */
-export interface AgentProfile {
-  /** Either 'manager' or 'worker'; v1 requires exactly one of each per run. */
-  role_in_sim: AgentRole;
+export interface AvatarProfile {
+  /**
+   * uuid; identical between the avatar row and the config_json snapshot. The
+   * frontend uses this to wire up drilldown links from the dashboard.
+   */
+  id: string;
 
-  /** Display name, 1–80 chars. Used in prompts and UI. */
+  /** 'manager' or 'worker'. v1 requires exactly one manager + ≥1 workers. */
+  role_in_sim: AvatarRole;
+
+  /** Display name. 1–80 chars; unique within the run (validator-enforced). */
   name: string;
 
   /** Free-form job title, e.g. "Regional Manager". 1–80 chars. */
@@ -35,38 +44,37 @@ export interface AgentProfile {
   values: string;
 
   /**
-   * Integer 1–100. Multiplied by `morale / 50` to get paper_sold per round
-   * (so morale=50 → output=baseline; morale=100 → 2× baseline). Unused for
-   * managers in v1 — schema is symmetric, behavior is asymmetric.
+   * Integer. For workers: 1–100, multiplied by `morale / 50` per round. For
+   * managers: 0 or 1, ignored (v1 doesn't compute manager output). The
+   * manager prompt deliberately never sees baseline_output of any avatar —
+   * see docs/many-workers/design.md §7 manager information asymmetry.
    */
   baseline_output: number;
 }
 
 /**
- * The immutable input snapshot persisted as JSON text in `runs.config_json`.
- * Anything that can vary the output of a run lives here so that two runs with
- * identical config_json values are exactly comparable as experiment replicates.
- *
- * Discipline (per locked-decisions.md #11): when adding a new variance source,
- * add it to this shape. The shape stays loose during prototype.
+ * The immutable input snapshot persisted as JSON text in `run.config_json`.
+ * Anything that can vary the output of a run lives here. Two runs with
+ * identical config_json values are exactly comparable as experiment
+ * replicates.
  */
 export interface RunConfig {
-  /** Exactly two agents in v1: one manager, one worker. */
-  agents: AgentProfile[];
+  /** ≥2 entries: exactly one manager + ≥1 worker. */
+  avatars: AvatarProfile[];
 
-  /** Provider model id, e.g. 'gpt-4.1'. Passed per-call to the LLMClient. */
+  /** Provider model id, e.g. 'gpt-4o-mini'. Per-call to the LLMClient. */
   model: string;
 
   /** Sampling temperature; default 0.8. */
   temperature: number;
 
-  /** Top-p; defaults to 1.0. */
+  /** Top-p; default 1.0. */
   top_p: number;
 
-  /** Bumped whenever prompt skeletons change. Captured for reproducibility. */
+  /** Bumped whenever any prompt skeleton changes. Reproducibility tag. */
   prompt_template_version: string;
 
-  /** Seed for deterministic situation_tag picking; captured at run creation. */
+  /** Seed for deterministic situation_tag picking + pair sampling. */
   situation_tag_seed: number;
 
   /** Bumped whenever runner / scoring logic changes. Reproducibility tag. */
@@ -74,9 +82,9 @@ export interface RunConfig {
 }
 
 /**
- * Allowed values of the `runs.status` column. State machine is enforced by the
- * runner (no DB triggers). 'cancelled' is a reserved slot — not exposed in v1
- * but already legal in the schema so flipping it on later is not a migration.
+ * Allowed values of the `run.status` column. Enforced by the runner.
+ * 'cancelled' is a reserved slot — not exposed as an endpoint in v1 but
+ * already legal in the schema, so flipping it on later is not a migration.
  */
 export type RunStatus =
   | 'pending'
@@ -85,27 +93,24 @@ export type RunStatus =
   | 'failed'
   | 'cancelled';
 
+// ─── Wire shapes for read endpoints ─────────────────────────────────────────
+// These are denormalized on the API side so the frontend can render without
+// joining or re-deriving. See docs/many-workers/api.md.
+
 /**
- * Wire shape for a single completed round, as returned by GET /runs/:id.
- * One-to-one with a `rounds` table row, minus internal id / run_id columns
- * that the client doesn't need.
+ * Signed delta from an expected value. Used in the dashboard to render
+ * "team is 12 units below expected" / "Jim is 3 units above expected share."
  */
-export interface RoundView {
-  round_index: number;
-  situation_tag: string;
-  manager_message: string;
-  worker_message: string;
-  worker_self_perception: string;
-  worker_morale_rationale: string;
-  morale: number;
-  paper_sold: number;
-  created_at: number;
+export interface SignedDelta {
+  /** Absolute magnitude — always ≥0. */
+  abs: number;
+  /** 'above' when actual ≥ expected; 'below' otherwise. */
+  direction: 'above' | 'below';
 }
 
 /**
- * One entry in the `GET /runs` list response. Denormalizes manager_name and
- * worker_name out of config_json so the frontend can render rows without
- * parsing the snapshot blob.
+ * One entry in the `GET /runs` list response. Denormalizes the manager and
+ * worker names out of config_json so list rendering never parses the snapshot.
  */
 export interface RunListItem {
   id: string;
@@ -117,15 +122,62 @@ export interface RunListItem {
   paper_total: number;
   /** True/false once status is 'completed'; null while non-terminal. */
   hit_target: boolean | null;
+  /** Pulled from the manager avatar row. */
   manager_name: string;
-  worker_name: string;
+  /** All worker names in config_json order. */
+  worker_names: string[];
 }
 
 /**
- * Full run detail returned by `GET /runs/:id`. Polled by the run-detail screen
- * every 2s while status is 'pending' or 'running'.
- *
- * Note: situation_tag_seed is intentionally omitted — it's an internal detail.
+ * Per-round, per-avatar snapshot returned in the dashboard read. Mirrors a
+ * `round_avatar` row but only the fields the dashboard needs. Drilldown
+ * exposes the rest (rationale, self_perception) under the privacy filter.
+ */
+export interface DashboardRoundAvatar {
+  avatar_id: string;
+  morale: number | null;
+  paper_sold: number | null;
+}
+
+/**
+ * Per-round entry in the dashboard read. No interaction text — drilldown
+ * fetches that. Aggregates per-avatar end-of-round state.
+ */
+export interface DashboardRound {
+  round_index: number;
+  situation_tag: string;
+  created_at: number;
+  avatars: DashboardRoundAvatar[];
+}
+
+/**
+ * Per-avatar aggregate row in the dashboard read. Drives the per-avatar
+ * tiles: cumulative paper, last-round morale, sparkline data.
+ */
+export interface DashboardPerAvatar {
+  avatar_id: string;
+  name: string;
+  role_in_sim: AvatarRole;
+  role_label: string;
+  /** NULL for the manager — managers don't sell paper in v1. */
+  paper_total: number | null;
+  /** target_paper / num_workers × rounds_completed / rounds_total. NULL for manager. */
+  worker_expected_share: number | null;
+  /** paper_total - worker_expected_share. NULL for manager. */
+  worker_delta: SignedDelta | null;
+  /** Last completed round's morale; NULL on round 0 or for the manager. */
+  last_morale: number | null;
+  /** One entry per completed round, oldest → newest. NULL where absent (e.g. manager). */
+  morale_curve: Array<number | null>;
+  /** Same length as `morale_curve`. NULL for manager rounds. */
+  paper_per_round: Array<number | null>;
+}
+
+/**
+ * Full dashboard payload returned by `GET /runs/:id`. Polled by the dashboard
+ * view every 2s while status is non-terminal. Stripped of all interaction
+ * text and self_perception — those are private and large; drilldown fetches
+ * what it needs.
  */
 export interface RunDetail {
   id: string;
@@ -135,24 +187,89 @@ export interface RunDetail {
   rounds_completed: number;
   target_paper: number;
   paper_total: number;
+  /** round(target_paper * rounds_completed / rounds_total). */
+  team_expected: number;
+  team_delta: SignedDelta;
   experiment_id: string | null;
+  /** Public subset of RunConfig — `situation_tag_seed` deliberately omitted. */
   config: Omit<RunConfig, 'situation_tag_seed'>;
-  /** Ordered ascending by round_index. */
-  rounds: RoundView[];
-  /** Populated only when status='failed'. */
+  rounds: DashboardRound[];
+  per_avatar: DashboardPerAvatar[];
   error_message: string | null;
   failed_at_round: number | null;
 }
 
 /**
- * Body shape for `POST /runs`. Validation lives in apps/api/src/routes/schemas.ts;
- * this type is the post-validation shape the route handler receives.
+ * One per-round entry in the avatar drilldown. Includes private fields
+ * (morale_rationale, self_perception) ONLY for the subject avatar; other
+ * avatars' private state is never exposed.
+ */
+export interface DrilldownRoundEntry {
+  round_index: number;
+  situation_tag: string;
+  morale: number | null;
+  morale_rationale: string | null;
+  self_perception: string | null;
+  paper_sold: number | null;
+}
+
+/**
+ * One interaction row as exposed in the drilldown feed. Both sides'
+ * messages and morale are returned, but `*_self_perception` is filtered out
+ * — the subject avatar's self_perception comes through the per-round entries
+ * (DrilldownRoundEntry); other participants' self_perception is private.
+ */
+export interface DrilldownInteraction {
+  id: string;
+  round_index: number;
+  order_in_round: number;
+  situation_tag: string;
+  initiator: { id: string; name: string; role_in_sim: AvatarRole };
+  responder: { id: string; name: string; role_in_sim: AvatarRole };
+  initiator_message: string;
+  responder_message: string;
+  initiator_morale: number | null;
+  initiator_morale_rationale: string | null;
+  responder_morale: number;
+  responder_morale_rationale: string;
+  created_at: number;
+}
+
+/**
+ * Full drilldown payload returned by `GET /runs/:id/avatars/:avatarId`. When
+ * the request includes `?partner=<id>`, the interaction feed is restricted to
+ * that pair (in either direction) and `partner` is populated.
+ */
+export interface AvatarDetail {
+  /** Subject avatar's full profile (incl. private values like baseline_output). */
+  avatar: AvatarProfile;
+  /** Populated only when `?partner=<id>` was provided. */
+  partner: {
+    id: string;
+    name: string;
+    role_in_sim: AvatarRole;
+    role_label: string;
+  } | null;
+  /** Per-round state for the subject avatar; subject's private fields included. */
+  rounds: DrilldownRoundEntry[];
+  /** Interactions where subject was initiator or responder, ordered by (round_index, order_in_round). */
+  interactions: DrilldownInteraction[];
+}
+
+// ─── Request body type ──────────────────────────────────────────────────────
+
+/**
+ * Body shape for `POST /runs`. The Zod validator in
+ * apps/api/src/routes/schemas.ts owns the constraints; this type is what the
+ * route handler receives post-validation. Note that `avatars[].id` is NOT
+ * supplied by the client — the API generates uuids server-side and stores
+ * them in both the avatar table and the config_json snapshot.
  */
 export interface CreateRunRequest {
-  agents: AgentProfile[];
+  avatars: Array<Omit<AvatarProfile, 'id'>>;
   target_paper: number;
   rounds_total: number;
-  /** Defaults to 'gpt-4.1' if omitted. */
+  /** Defaults to 'gpt-4o-mini' if omitted. */
   model?: string;
   /** Defaults to 0.8 if omitted. */
   temperature?: number;
