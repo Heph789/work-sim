@@ -6,8 +6,8 @@
 // Visual cues:
 // - Header line: "Round N · order K · {situation_tag}" + "manager 1:1" or
 //   "peer" pill, derived from participants' roles.
-// - Direction badge relative to the focused avatar: "you initiated" /
-//   "you responded".
+// - Direction badge relative to the focused avatar: "{name} initiated" /
+//   "{name} responded". The viewer is an outside observer — never "you".
 // - Manager rows have no initiator-side morale (locked-decisions §15).
 
 'use client';
@@ -17,7 +17,7 @@ import { SITUATION_TAGS } from '@work-sim/shared';
 
 export interface InteractionBlockProps {
   interaction: InteractionView;
-  /** Avatar whose drilldown we're rendering — drives the "you initiated/responded" badge. */
+  /** Avatar whose drilldown we're rendering — drives the "{name} initiated/responded" badge. */
   focusAvatar: AvatarView;
   /** All avatars in the run, used to render names + roles. */
   avatars: AvatarView[];
@@ -80,7 +80,7 @@ export function InteractionBlock({ interaction, focusAvatar, avatars }: Interact
             {kind === 'manager-1on1' ? 'manager 1:1' : 'peer'}
           </span>
           <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-800">
-            {focusInitiated ? 'you initiated' : 'you responded'}
+            {focusAvatar.name} {focusInitiated ? 'initiated' : 'responded'}
           </span>
         </div>
       </header>
@@ -100,7 +100,7 @@ export function InteractionBlock({ interaction, focusAvatar, avatars }: Interact
         interaction.initiator_morale !== null && (
           <div className="ml-4 mb-2 text-xs text-gray-500">
             <div>
-              <span className="text-gray-400">your morale:</span>{' '}
+              <span className="text-gray-400">morale:</span>{' '}
               {interaction.initiator_morale}
             </div>
             {interaction.initiator_morale_rationale && (
@@ -128,7 +128,7 @@ export function InteractionBlock({ interaction, focusAvatar, avatars }: Interact
       {!focusInitiated && (
         <div className="ml-4 mb-2 text-xs text-gray-500">
           <div>
-            <span className="text-gray-400">your morale:</span>{' '}
+            <span className="text-gray-400">morale:</span>{' '}
             {interaction.responder_morale}
           </div>
           <div>
