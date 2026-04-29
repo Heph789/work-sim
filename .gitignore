@@ -23,3 +23,7 @@ dist/
 *.log
 npm-debug.log*
 pnpm-debug.log*
+
+# next
+.next
+next-env.d.ts
