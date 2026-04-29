@@ -31,6 +31,21 @@ export const API_BASE: string = USE_MOCK
   : (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000');
 
 /**
+ * In mock mode, propagate `?scenario=…` from the page URL onto every API
+ * fetch. Without this the route handler only sees the query when the user
+ * navigates with it directly; client-side polling fetches strip it. The route
+ * handler also Set-Cookies the chosen scenario so subsequent navigations
+ * (e.g. into a run dashboard whose URL has no query) keep using it.
+ */
+function withScenario(url: string): string {
+  if (!USE_MOCK || typeof window === 'undefined') return url;
+  const scenario = new URLSearchParams(window.location.search).get('scenario');
+  if (!scenario) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}scenario=${encodeURIComponent(scenario)}`;
+}
+
+/**
  * Body shape for POST /runs. Mirrors apps/api/src/routes/schemas.ts
  * CreateRunRequestSchema. The setup page builds this from its draft and
  * passes it to `createRun`.
@@ -96,7 +111,7 @@ export async function listRuns(opts?: { limit?: number; cursor?: number }): Prom
   if (opts?.limit !== undefined) qs.set('limit', String(opts.limit));
   if (opts?.cursor !== undefined && opts.cursor !== null) qs.set('cursor', String(opts.cursor));
   const url = `${API_BASE}/runs${qs.toString() ? `?${qs.toString()}` : ''}`;
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
+  const res = await fetch(withScenario(url), { headers: { Accept: 'application/json' } });
   if (!res.ok) {
     const body = await readJson(res);
     throw new ApiError(res.status, `GET /runs failed (${res.status})`, body);
@@ -110,7 +125,7 @@ export async function listRuns(opts?: { limit?: number; cursor?: number }): Prom
  * by the dashboard while status is pending|running.
  */
 export async function getRun(id: string): Promise<RunDetail> {
-  const res = await fetch(`${API_BASE}/runs/${encodeURIComponent(id)}`, {
+  const res = await fetch(withScenario(`${API_BASE}/runs/${encodeURIComponent(id)}`), {
     headers: { Accept: 'application/json' },
   });
   if (res.status === 404) throw new RunNotFoundError(id);
@@ -147,7 +162,7 @@ export async function getRunInteractions(id: string): Promise<RunInteractionsFee
  * screen uses to navigate to /runs/:id.
  */
 export async function createRun(body: CreateRunBody): Promise<{ id: string }> {
-  const res = await fetch(`${API_BASE}/runs`, {
+  const res = await fetch(withScenario(`${API_BASE}/runs`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),

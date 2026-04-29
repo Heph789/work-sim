@@ -1,24 +1,25 @@
 // Dev-only scenario picker. Renders a small <select> in the runs list page
-// header when NEXT_PUBLIC_USE_MOCK is on. Picking a scenario navigates to
-// /?scenario=<name>; the route handler reads the query, sets a cookie, and
-// future requests use it automatically.
+// header when NEXT_PUBLIC_USE_MOCK is on. Picking a scenario hard-navigates
+// to /?scenario=<name>; lib/api.ts forwards that query onto every API fetch
+// and the route handler Set-Cookies it for cross-page navigation.
 //
 // Hidden completely in real-backend mode.
+//
+// Why a full window.location.assign rather than router.replace? router.replace
+// only updates the URL — it doesn't restart the polling loops in useRuns /
+// useRunPolling, so a freshly-picked scenario would only land at the next 5s
+// tick, and the in-flight component state (existing rows, sparkline series)
+// would briefly mix old and new scenario data. A full nav remounts the page
+// and produces an instant, clean swap.
 
 'use client';
 
 import { Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { SCENARIO_NAMES } from '@/lib/mock/scenarios';
 
 const ENABLED = process.env.NEXT_PUBLIC_USE_MOCK !== 'false';
 
-/**
- * Tiny labeled <select> wired to ?scenario=… in the URL. Reads the active
- * scenario from the query string when present so refresh persists the
- * selection visually. Wrapped in Suspense per Next 15's CSR-bailout rule
- * for useSearchParams.
- */
 export function DevScenarioPicker() {
   if (!ENABLED) return null;
   return (
@@ -29,7 +30,6 @@ export function DevScenarioPicker() {
 }
 
 function DevScenarioPickerInner() {
-  const router = useRouter();
   const search = useSearchParams();
   const active = search.get('scenario') ?? '';
 
@@ -41,15 +41,7 @@ function DevScenarioPickerInner() {
         value={active}
         onChange={(e) => {
           const v = e.target.value;
-          // Navigate to the same path with ?scenario=…; the route handler
-          // sets the cookie. Use replace to avoid back-button noise.
-          if (!v) {
-            router.replace('/');
-          } else {
-            router.replace(`/?scenario=${encodeURIComponent(v)}`);
-          }
-          // Force a re-fetch of any in-flight data by hard-refreshing the route.
-          router.refresh();
+          window.location.assign(v ? `/?scenario=${encodeURIComponent(v)}` : '/');
         }}
       >
         <option value="">(cookie)</option>
