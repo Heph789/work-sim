@@ -5,7 +5,7 @@
 // Wire shapes are imported from @work-sim/shared so we never re-declare them.
 
 import type {
-  AgentProfile,
+  AvatarProfile,
   RunDetail,
   RunInteractionsFeed,
   RunListItem,
@@ -19,9 +19,17 @@ import type {
 export const API_BASE: string =
   process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
-/** Body shape for POST /runs. Mirrors apps/api/src/routes/schemas.ts CreateRunRequestSchema. */
+/**
+ * Body shape for POST /runs. Mirrors apps/api/src/routes/schemas.ts
+ * CreateRunRequestSchema. The setup page builds this from its draft and
+ * passes it to `createRun`.
+ *
+ * Constraints (validated server-side):
+ * - exactly one manager in `avatars`
+ * - at least one worker in `avatars`
+ */
 export interface CreateRunBody {
-  agents: AgentProfile[];
+  avatars: AvatarProfile[];
   target_paper: number;
   rounds_total: number;
   model?: string;
@@ -58,6 +66,7 @@ export class ApiError extends Error {
 
 /** Read a JSON body if there is one; tolerate empty/non-JSON for non-2xx errors. */
 async function readJson(res: Response): Promise<unknown> {
+  // TODO: trim once the API guarantees JSON content-type on non-2xx
   const text = await res.text();
   if (!text) return null;
   try {
@@ -85,8 +94,9 @@ export async function listRuns(opts?: { limit?: number; cursor?: number }): Prom
 }
 
 /**
- * GET /runs/:id — full run detail with all completed rounds. Polled every 2s
- * by the run-detail screen while status is pending|running.
+ * GET /runs/:id — full run detail with all completed rounds, all interactions,
+ * all per-(round, avatar) snapshots, and the avatar roster. Polled every 2s
+ * by the dashboard while status is pending|running.
  */
 export async function getRun(id: string): Promise<RunDetail> {
   const res = await fetch(`${API_BASE}/runs/${encodeURIComponent(id)}`, {
