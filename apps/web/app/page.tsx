@@ -15,12 +15,16 @@
 import Link from 'next/link';
 import { useRuns } from '@/hooks/use-runs';
 import { StatusPill } from '@/components/status-pill';
+import { DevScenarioPicker } from '@/components/dev-scenario-picker';
 
 export default function RunsListPage() {
   const { runs, loading, error } = useRuns();
 
   return (
     <>
+      <div className="flex justify-end mb-2">
+        <DevScenarioPicker />
+      </div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-semibold">Runs</h1>
         <Link href="/new" className="btn-primary">

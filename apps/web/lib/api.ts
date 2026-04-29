@@ -12,12 +12,23 @@ import type {
 } from '@work-sim/shared';
 
 /**
- * Base URL of the Fastify API. Read from NEXT_PUBLIC_API_URL at module load.
- * Fallback is the API's default dev port. The `NEXT_PUBLIC_` prefix is what
- * makes Next inline the value into the client bundle.
+ * Base URL of the runs API.
+ *
+ * Two modes:
+ * - Mock mode (default while NEXT_PUBLIC_USE_MOCK is unset OR === 'true'):
+ *   point at the same-origin Next route handlers under `/api`. No real
+ *   backend required — the dev server serves both the UI and the API.
+ *   See apps/web/app/api/runs/* and apps/web/lib/mock/*.
+ * - Real mode (NEXT_PUBLIC_USE_MOCK === 'false'): fall through to the
+ *   Fastify API URL in NEXT_PUBLIC_API_URL (default :4000).
+ *
+ * The `NEXT_PUBLIC_` prefix is what makes Next inline the value into the
+ * client bundle.
  */
-export const API_BASE: string =
-  process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK !== 'false';
+export const API_BASE: string = USE_MOCK
+  ? '/api'
+  : (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000');
 
 /**
  * Body shape for POST /runs. Mirrors apps/api/src/routes/schemas.ts
