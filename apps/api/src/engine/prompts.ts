@@ -12,11 +12,6 @@
 // The manager prompt's information asymmetry is hard-coded here per
 // docs/many-workers/design.md §7: the manager prompt NEVER includes any
 // worker's morale, morale_rationale, self_perception, or baseline_output.
-// It DOES include team-level pace (target / paper_total / team_expected /
-// team_delta) and per-worker objective output stats (cumulative paper,
-// expected share, signed delta). Adding a new private state field later
-// won't accidentally leak unless a developer explicitly threads it through
-// `buildManagerPrompt`'s args.
 
 import type {
   AvatarProfile,
@@ -29,6 +24,7 @@ import type { InteractionRow, AvatarRow } from '../db/schema.js';
 import {
   formatPairHistory,
   formatTodaySoFar,
+  formatTranscript,
 } from './transcript.js';
 
 /** Bumped whenever any of the four prompt skeletons changes. */
@@ -42,146 +38,273 @@ export const PROMPT_TEMPLATE_VERSION = 'v2';
 export const INITIAL_SELF_PERCEPTION =
   "I just started this job. I'm still figuring out what to expect from my manager and coworkers.";
 
+const NO_PRIOR_INTERACTIONS = 'No prior interactions yet.';
+const NO_DAY_SO_FAR = "You haven't done much yet today.";
+const NO_PAIR_HISTORY = "You haven't spoken with them before in this run.";
+
+function profileToRowLike(p: AvatarProfile): AvatarRow {
+  return {
+    id: p.id,
+    runId: '',
+    roleInSim: p.role_in_sim,
+    name: p.name,
+    roleLabel: p.role_label,
+    personality: p.personality,
+    values: p.values,
+    baselineOutput: p.baseline_output,
+  };
+}
+
 // ─── 1. Manager 1:1 ─────────────────────────────────────────────────────────
 
-/**
- * Build the manager turn's Message[]. Free-text completion; the model
- * produces the manager's spoken line for the 1:1 with the specified worker.
- *
- * Privacy: NONE of the worker's morale, morale_rationale, self_perception,
- * or baseline_output is in scope for this builder. The args don't even
- * accept those fields, so a future refactor cannot accidentally pass them in.
- */
 export function buildManagerPrompt(args: {
   manager: AvatarProfile;
-  /** The specific worker this 1:1 is with. */
   worker: AvatarProfile;
   situationTag: SituationTagId;
 
-  /** Team-level objective context. */
   targetPaper: number;
   paperTotal: number;
   teamExpected: number;
   teamDelta: SignedDelta;
   roundsRemaining: number;
 
-  /** Per-worker objective context (no morale, no self_perception). */
   workerPaperTotal: number;
   workerExpectedShare: number;
   workerDelta: SignedDelta;
 
-  /**
-   * Prior manager↔this-worker 1:1 interactions (any round). Excludes peer
-   * interactions and 1:1s with other workers; the manager only sees their
-   * own conversational history with the worker being addressed.
-   */
   priorManagerWorkerInteractions: ReadonlyArray<InteractionRow>;
   avatarsById: ReadonlyMap<string, AvatarRow>;
 }): Message[] {
-  // TODO: assemble system + user per docs/many-workers/simulation-engine.md §12.
-  //
-  // System (cacheable): manager profile + role of engagement.
-  // User (dynamic):
-  //   SITUATION TODAY: {{situation.description}}
-  //   YOUR PRIVATE CONTEXT: target / team total / team_expected /
-  //     team_delta / rounds_remaining.
-  //   ABOUT {{worker.name.toUpperCase()}}: workerPaperTotal /
-  //     workerExpectedShare / workerDelta.
-  //   RECENT INTERACTIONS WITH {{worker.name.toUpperCase()}}: <pair history>
-  //   Now, what do you say to {{worker.name}}?
-  void args;
-  void getSituationTag;
-  void formatPairHistory;
-  return [];
+  const { manager, worker } = args;
+  const situation = getSituationTag(args.situationTag);
+
+  const system = `You are ${manager.name}, the ${manager.role_label} at a paper company.
+
+Your personality:
+${manager.personality}
+
+What you value at work:
+${manager.values}
+
+You are speaking with your direct report, ${worker.name}, who works as a ${worker.role_label}.
+
+Rules of engagement:
+- Speak naturally, in 1–3 short sentences.
+- Do NOT narrate your own actions ("I lean back in my chair…"). Just say what you say.
+- Do NOT reference round numbers, simulations, or any meta-commentary.
+- Do NOT explicitly mention numerical sales targets unless it would be in character to do so.
+- Stay in character.`;
+
+  const transcript = formatPairHistory({
+    interactions: args.priorManagerWorkerInteractions,
+    avatarA: profileToRowLike(manager),
+    avatarB: profileToRowLike(worker),
+    avatarsById: args.avatarsById,
+  });
+
+  const workerNameUpper = worker.name.toUpperCase();
+
+  const user = `SITUATION TODAY: ${situation.description}
+
+YOUR PRIVATE CONTEXT:
+- Sales target by end of period: ${args.targetPaper} units total.
+- Team total sold: ${args.paperTotal} units.
+- Expected team total by now: ${args.teamExpected} units.
+- Team is ${args.teamDelta.abs} units ${args.teamDelta.direction} expected.
+- Rounds remaining: ${args.roundsRemaining}.
+
+ABOUT ${workerNameUpper}:
+- Their cumulative output this run: ${args.workerPaperTotal} units.
+- Their expected share by now: ${args.workerExpectedShare} units.
+    ( = target_paper / num_workers × rounds_completed / rounds_total )
+- They are ${args.workerDelta.abs} units ${args.workerDelta.direction} their expected share.
+
+RECENT INTERACTIONS WITH ${workerNameUpper}:
+${transcript || NO_PRIOR_INTERACTIONS}
+
+Now, what do you say to ${worker.name}?`;
+
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ];
 }
 
 // ─── 2. Worker side of manager 1:1 ──────────────────────────────────────────
 
-/**
- * Build the worker turn's Message[]. Structured completion (AvatarTurnSchema).
- * The worker sees their own self_perception, today's interactions so far
- * (any partner), full prior manager↔W history, and what the manager just said.
- */
 export function buildWorker1on1Prompt(args: {
   worker: AvatarProfile;
   manager: AvatarProfile;
   situationTag: SituationTagId;
-  /** Worker's running self_perception (or INITIAL_SELF_PERCEPTION on round 1). */
   selfPerception: string;
-  /** What the manager just said this round; spliced into the user prompt. */
   managerMessage: string;
-  /** Today's interactions where this worker was a participant (excluding the one we're building). */
   todayInteractionsForWorker: ReadonlyArray<InteractionRow>;
-  /** Prior manager↔W interactions across the run (excluding current round). */
   priorManagerWorkerInteractions: ReadonlyArray<InteractionRow>;
   avatarsById: ReadonlyMap<string, AvatarRow>;
 }): Message[] {
-  // TODO: assemble per docs/many-workers/simulation-engine.md §12.2.
-  //
-  // System (cacheable): worker profile + JSON-shape rules.
-  // User (dynamic):
-  //   SITUATION TODAY / YOUR CURRENT INTERNAL STATE / YOUR DAY SO FAR /
-  //   RECENT INTERACTIONS WITH {{manager}} / "{{managerMessage}}" / Respond now.
-  void args;
-  void formatTodaySoFar;
-  return [];
+  const { worker, manager } = args;
+  const situation = getSituationTag(args.situationTag);
+
+  const system = `You are ${worker.name}, a ${worker.role_label} at a paper company.
+
+Your personality:
+${worker.personality}
+
+What you value at work:
+${worker.values}
+
+You report to ${manager.name}, the ${manager.role_label}. You also work alongside other employees on your team.
+
+You will respond with a JSON object containing:
+- "message": Your reply to ${manager.name}, in 1–3 short sentences. Speak naturally. No narration of physical actions. Stay in character.
+- "updated_self_perception": A 1–2 sentence update to your private internal monologue based on this exchange. Mention specific people by name where relevant. ${manager.name} cannot see this.
+- "morale": An integer 0–100 representing your engagement and motivation right now. 50 is neutral. Below 30 means demoralized. Above 70 means energized.
+- "morale_rationale": One short sentence explaining why this morale, given the day.`;
+
+  const todaySoFar = formatTodaySoFar({
+    interactionsThisRound: args.todayInteractionsForWorker,
+    avatarId: worker.id,
+    avatarsById: args.avatarsById,
+  });
+
+  const managerHistory = formatTranscript({
+    interactions: args.priorManagerWorkerInteractions,
+    avatarsById: args.avatarsById,
+  });
+
+  const managerNameUpper = manager.name.toUpperCase();
+
+  const user = `SITUATION TODAY: ${situation.description}
+
+YOUR CURRENT INTERNAL STATE (private):
+"${args.selfPerception}"
+
+YOUR DAY SO FAR:
+${todaySoFar || NO_DAY_SO_FAR}
+
+RECENT INTERACTIONS WITH ${managerNameUpper} (across this run):
+${managerHistory || NO_PRIOR_INTERACTIONS}
+
+${manager.name} just said to you:
+"${args.managerMessage}"
+
+Respond now.`;
+
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ];
 }
 
 // ─── 3. Peer initiator ──────────────────────────────────────────────────────
 
-/**
- * Build the peer-initiator turn's Message[]. Structured (AvatarTurnSchema).
- * The initiator opens the hallway exchange; the responder gets to see their
- * message via `buildPeerResponderPrompt`.
- */
 export function buildPeerInitiatorPrompt(args: {
   self: AvatarProfile;
   partner: AvatarProfile;
   situationTag: SituationTagId;
-  /** Initiator's running self_perception. */
   selfPerception: string;
-  /** Today's interactions where initiator was a participant (excluding the one we're building). */
   todayInteractionsForSelf: ReadonlyArray<InteractionRow>;
-  /** Prior self↔partner peer interactions across the run. */
   pairHistory: ReadonlyArray<InteractionRow>;
   avatarsById: ReadonlyMap<string, AvatarRow>;
 }): Message[] {
-  // TODO: assemble per docs/many-workers/simulation-engine.md §12.3 + 12.4.
-  //
-  // System (cacheable): self profile + "you are about to have a brief
-  // hallway exchange with {{partner}}" + JSON rules.
-  // User (dynamic):
-  //   SITUATION TODAY / YOUR CURRENT INTERNAL STATE / YOUR DAY SO FAR /
-  //   PRIOR HISTORY WITH {{partner}} / "You step into the hallway and see
-  //   {{partner}}. What do you say?"
-  void args;
-  return [];
+  return buildPeerSystemAndUser({
+    ...args,
+    framing: 'initiator',
+    initiatorMessage: null,
+  });
 }
 
 // ─── 4. Peer responder ──────────────────────────────────────────────────────
 
-/**
- * Build the peer-responder turn's Message[]. Structured (AvatarTurnSchema).
- * The responder sees the initiator's just-spoken message in addition to the
- * same context the initiator had.
- */
 export function buildPeerResponderPrompt(args: {
   self: AvatarProfile;
   partner: AvatarProfile;
   situationTag: SituationTagId;
-  /** Responder's running self_perception. */
   selfPerception: string;
-  /** Today's interactions where responder was a participant (excluding the one we're building). */
   todayInteractionsForSelf: ReadonlyArray<InteractionRow>;
-  /** Prior self↔partner peer interactions across the run. */
   pairHistory: ReadonlyArray<InteractionRow>;
-  /** What the initiator just said in this exchange. */
   initiatorMessage: string;
   avatarsById: ReadonlyMap<string, AvatarRow>;
 }): Message[] {
-  // TODO: same shape as initiator, with system reframed "You are about to
-  // RESPOND to {{partner}}…" and user prompt ending with the quoted
-  // initiator message + "Respond now."
-  void args;
-  return [];
+  return buildPeerSystemAndUser({
+    ...args,
+    framing: 'responder',
+  });
+}
+
+function buildPeerSystemAndUser(args: {
+  self: AvatarProfile;
+  partner: AvatarProfile;
+  situationTag: SituationTagId;
+  selfPerception: string;
+  todayInteractionsForSelf: ReadonlyArray<InteractionRow>;
+  pairHistory: ReadonlyArray<InteractionRow>;
+  avatarsById: ReadonlyMap<string, AvatarRow>;
+  framing: 'initiator' | 'responder';
+  initiatorMessage?: string | null;
+}): Message[] {
+  const { self, partner, framing } = args;
+  const situation = getSituationTag(args.situationTag);
+
+  const engagement =
+    framing === 'initiator'
+      ? `You work alongside several other employees. You are about to have a brief hallway/break-room exchange with your coworker ${partner.name}, who works as a ${partner.role_label}.`
+      : `You work alongside several other employees. You are about to RESPOND to your coworker ${partner.name}, who works as a ${partner.role_label} and just spoke to you in the hallway.`;
+
+  const system = `You are ${self.name}, a ${self.role_label} at a paper company.
+
+Your personality:
+${self.personality}
+
+What you value at work:
+${self.values}
+
+${engagement}
+
+You will respond with a JSON object containing:
+- "message": What you say to ${partner.name}, in 1–3 short sentences. Speak naturally. No narration of physical actions. Stay in character.
+- "updated_self_perception": A 1–2 sentence update to your private internal monologue based on this exchange. Mention specific people by name where relevant. ${partner.name} cannot see this.
+- "morale": An integer 0–100 representing your engagement and motivation right now. 50 is neutral. Below 30 means demoralized. Above 70 means energized.
+- "morale_rationale": One short sentence explaining why this morale, given the day.`;
+
+  const todaySoFar = formatTodaySoFar({
+    interactionsThisRound: args.todayInteractionsForSelf,
+    avatarId: self.id,
+    avatarsById: args.avatarsById,
+  });
+
+  const pairHistoryText = formatPairHistory({
+    interactions: args.pairHistory,
+    avatarA: profileToRowLike(self),
+    avatarB: profileToRowLike(partner),
+    avatarsById: args.avatarsById,
+  });
+
+  const partnerNameUpper = partner.name.toUpperCase();
+
+  const closing =
+    framing === 'initiator'
+      ? `You step into the hallway and see ${partner.name}. What do you say?`
+      : `${partner.name} just said to you:
+"${args.initiatorMessage ?? ''}"
+
+Respond now.`;
+
+  const user = `SITUATION TODAY: ${situation.description}
+
+YOUR CURRENT INTERNAL STATE (private):
+"${args.selfPerception}"
+
+YOUR DAY SO FAR:
+${todaySoFar || NO_DAY_SO_FAR}
+
+PRIOR HISTORY WITH ${partnerNameUpper} (across this run):
+${pairHistoryText || NO_PAIR_HISTORY}
+
+${closing}`;
+
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ];
 }

@@ -1,24 +1,31 @@
 #!/usr/bin/env tsx
-// Start a run by picking a manager and worker preset from packages/shared.
-// Polls until the run reaches a terminal status, printing each round as it
-// completes. Assumes the API is running on localhost:4000 (override with API_URL).
+// Start a run by picking a manager and one or more worker presets from
+// packages/shared. Polls until the run reaches a terminal status, printing
+// each round as it completes. Assumes the API is running on localhost:4000
+// (override with API_URL).
 //
 // Usage:
-//   pnpm start-run                                      # interactive picker
-//   pnpm start-run michael-scott jim-halpert            # by preset keys
+//   pnpm start-run                                            # interactive picker
+//   pnpm start-run michael-scott jim-halpert pam-beesly       # by preset keys
 //   pnpm start-run michael-scott jim-halpert --rounds 5 --target 200
-//   pnpm start-run --help                               # show preset list
+//   pnpm start-run --help                                     # show preset list
 
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
 
 import { PRESETS_BY_ROLE, getPreset } from '@work-sim/shared';
+import type {
+  AvatarPreset,
+  DashboardPerAvatar,
+  DashboardRound,
+  RunDetail,
+} from '@work-sim/shared';
 
 const API_URL = process.env.API_URL ?? 'http://localhost:4000';
 
 interface Args {
   managerKey?: string;
-  workerKey?: string;
+  workerKeys: string[];
   rounds: number;
   target: number;
   model: string;
@@ -27,6 +34,7 @@ interface Args {
 
 function parseArgs(argv: string[]): Args {
   const args: Args = {
+    workerKeys: [],
     rounds: 10,
     target: 500,
     model: 'gpt-4o-mini',
@@ -54,12 +62,12 @@ function parseArgs(argv: string[]): Args {
     }
   }
   args.managerKey = positional[0];
-  args.workerKey = positional[1];
+  args.workerKeys = positional.slice(1);
   return args;
 }
 
 function printHelp(): void {
-  console.log(`Usage: pnpm start-run [manager-key] [worker-key] [flags]
+  console.log(`Usage: pnpm start-run [manager-key] [worker-key]+ [flags]
 
 Flags:
   --rounds N          number of rounds (default 10)
@@ -92,28 +100,66 @@ async function pickPresetInteractive(role: 'manager' | 'worker'): Promise<string
   return presets[idx]!.key;
 }
 
+async function pickWorkersInteractive(): Promise<string[]> {
+  const rl = createInterface({ input: stdin, output: stdout });
+  const presets = PRESETS_BY_ROLE.worker;
+  console.log('\nPick workers (comma-separated indexes, e.g. "1,3,4"):');
+  presets.forEach((p, i) =>
+    console.log(`  ${i + 1}. ${p.display_name} (${p.key}, baseline=${p.baseline_output})`),
+  );
+  const ans = (await rl.question(`Enter 1-${presets.length}: `)).trim();
+  rl.close();
+  const indexes = ans.split(',').map((s) => Number(s.trim()) - 1);
+  for (const idx of indexes) {
+    if (!Number.isInteger(idx) || idx < 0 || idx >= presets.length) {
+      throw new Error(`invalid selection: ${ans}`);
+    }
+  }
+  return indexes.map((i) => presets[i]!.key);
+}
+
+function presetToRequest(preset: AvatarPreset): {
+  role_in_sim: AvatarPreset['role_in_sim'];
+  name: string;
+  role_label: string;
+  personality: string;
+  values: string;
+  baseline_output: number;
+} {
+  return {
+    role_in_sim: preset.role_in_sim,
+    name: preset.name,
+    role_label: preset.role_label,
+    personality: preset.personality,
+    values: preset.values,
+    baseline_output: preset.baseline_output,
+  };
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
   const managerKey = args.managerKey ?? (await pickPresetInteractive('manager'));
-  const workerKey = args.workerKey ?? (await pickPresetInteractive('worker'));
+  const workerKeys =
+    args.workerKeys.length > 0 ? args.workerKeys : await pickWorkersInteractive();
 
   const manager = getPreset(managerKey);
-  const worker = getPreset(workerKey);
   if (!manager || manager.role_in_sim !== 'manager') {
     throw new Error(`unknown or non-manager preset: ${managerKey}`);
   }
-  if (!worker || worker.role_in_sim !== 'worker') {
-    throw new Error(`unknown or non-worker preset: ${workerKey}`);
+  const workers = workerKeys.map((k) => {
+    const w = getPreset(k);
+    if (!w || w.role_in_sim !== 'worker') {
+      throw new Error(`unknown or non-worker preset: ${k}`);
+    }
+    return w;
+  });
+  if (workers.length === 0) {
+    throw new Error('at least one worker is required');
   }
 
-  // Strip preset-only fields (key, display_name) before posting.
-  const { key: _mk, display_name: _md, ...managerProfile } = manager;
-  const { key: _wk, display_name: _wd, ...workerProfile } = worker;
-  void _mk; void _md; void _wk; void _wd;
-
   const body = {
-    agents: [managerProfile, workerProfile],
+    avatars: [presetToRequest(manager), ...workers.map(presetToRequest)],
     target_paper: args.target,
     rounds_total: args.rounds,
     model: args.model,
@@ -122,7 +168,9 @@ async function main(): Promise<void> {
 
   console.log(`\n→ POST ${API_URL}/runs`);
   console.log(`  manager: ${manager.display_name}`);
-  console.log(`  worker:  ${worker.display_name} (baseline=${worker.baseline_output})`);
+  for (const w of workers) {
+    console.log(`  worker:  ${w.display_name} (baseline=${w.baseline_output})`);
+  }
   console.log(`  target=${args.target}  rounds=${args.rounds}  model=${args.model}  temp=${args.temperature}\n`);
 
   const res = await fetch(`${API_URL}/runs`, {
@@ -140,31 +188,13 @@ async function main(): Promise<void> {
   let lastSeenRound = 0;
   while (true) {
     await new Promise((r) => setTimeout(r, 2000));
-    const detail = await fetch(`${API_URL}/runs/${id}`).then((r) => r.json()) as {
-      status: string;
-      rounds_completed: number;
-      rounds_total: number;
-      paper_total: number;
-      target_paper: number;
-      error_message: string | null;
-      rounds: Array<{
-        round_index: number;
-        situation_tag: string;
-        morale: number;
-        paper_sold: number;
-        manager_message: string;
-        worker_message: string;
-        worker_morale_rationale: string;
-      }>;
-    };
+    const detail = (await fetch(`${API_URL}/runs/${id}`).then((r) => r.json())) as RunDetail;
 
-    for (const r of detail.rounds.filter((r) => r.round_index > lastSeenRound)) {
-      console.log(
-        `── Round ${r.round_index} [${r.situation_tag}] morale=${r.morale} paper=${r.paper_sold} ──`,
-      );
-      console.log(`  Mgr:    ${r.manager_message}`);
-      console.log(`  Worker: ${r.worker_message}`);
-      console.log(`  (why: ${r.worker_morale_rationale})\n`);
+    const nameById = new Map(detail.per_avatar.map((p) => [p.avatar_id, p.name]));
+
+    const newRounds = detail.rounds.filter((r) => r.round_index > lastSeenRound);
+    for (const r of newRounds) {
+      printRound(r, detail.per_avatar, nameById);
       lastSeenRound = r.round_index;
     }
 
@@ -176,6 +206,23 @@ async function main(): Promise<void> {
       return;
     }
   }
+}
+
+function printRound(
+  round: DashboardRound,
+  perAvatar: DashboardPerAvatar[],
+  nameById: ReadonlyMap<string, string>,
+): void {
+  console.log(`── Round ${round.round_index} [${round.situation_tag}] ──`);
+  for (const a of round.avatars) {
+    const name = nameById.get(a.avatar_id) ?? a.avatar_id;
+    if (a.morale === null && a.paper_sold === null) {
+      console.log(`  ${name.padEnd(20)} (manager)`);
+    } else {
+      console.log(`  ${name.padEnd(20)} morale=${a.morale}  paper=${a.paper_sold}`);
+    }
+  }
+  void perAvatar;
 }
 
 main().catch((err) => {

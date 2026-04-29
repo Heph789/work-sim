@@ -316,8 +316,13 @@ export interface AppDb {
   /**
    * Run a function inside a transaction. Used by the runner during settle to
    * atomically write all round_avatar rows + bump run progress counters.
+   *
+   * better-sqlite3 transactions are synchronous — the callback must NOT
+   * return a Promise. Repo methods return Promises in their type signature
+   * but the underlying SQL runs synchronously, so callers should call them
+   * without `await` inside the callback.
    */
-  transaction<T>(fn: (tx: AppDb) => Promise<T>): Promise<T>;
+  transaction<T>(fn: (tx: AppDb) => T): Promise<T>;
 }
 
 export function createAppDb(url?: string): AppDb {
@@ -333,12 +338,12 @@ function buildAppDb(client: DB): AppDb {
     rounds: createRoundsRepo(client),
     roundAvatars: createRoundAvatarsRepo(client),
     interactions: createInteractionsRepo(client),
-    transaction<T>(fn: (tx: AppDb) => Promise<T>): Promise<T> {
+    transaction<T>(fn: (tx: AppDb) => T): Promise<T> {
       // better-sqlite3 transactions are synchronous; drizzle's `.transaction`
       // wraps that. The repo methods are async-shaped but their underlying
-      // DB calls are sync, so awaiting inside the callback resolves on the
-      // same tick and the transaction commits correctly.
-      return client.transaction((tx) => {
+      // DB calls are sync — callers must NOT await them inside fn (since
+      // returning a Promise from fn would make drizzle reject the transaction).
+      const result = client.transaction((tx) => {
         const txClient = tx as unknown as DB;
         const txBundle: AppDb = {
           client: txClient,
@@ -352,7 +357,8 @@ function buildAppDb(client: DB): AppDb {
           },
         };
         return fn(txBundle);
-      }) as Promise<T>;
+      });
+      return Promise.resolve(result as T);
     },
   };
   return bundle;

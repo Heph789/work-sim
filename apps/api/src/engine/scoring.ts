@@ -32,9 +32,8 @@ export function teamExpected(args: {
   roundsCompleted: number;
   roundsTotal: number;
 }): number {
-  // TODO: return Math.round(targetPaper * roundsCompleted / roundsTotal);
-  void args;
-  return 0;
+  if (args.roundsTotal <= 0) return 0;
+  return Math.round((args.targetPaper * args.roundsCompleted) / args.roundsTotal);
 }
 
 /**
@@ -51,9 +50,11 @@ export function workerExpectedShare(args: {
   roundsCompleted: number;
   roundsTotal: number;
 }): number {
-  // TODO: return Math.round((targetPaper / numWorkers) * (roundsCompleted / roundsTotal));
-  void args;
-  return 0;
+  if (args.numWorkers <= 0 || args.roundsTotal <= 0) return 0;
+  return Math.round(
+    (args.targetPaper / args.numWorkers) *
+      (args.roundsCompleted / args.roundsTotal),
+  );
 }
 
 /**

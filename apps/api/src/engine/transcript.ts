@@ -16,27 +16,30 @@ import type { InteractionRow, AvatarRow } from '../db/schema.js';
  *   {{responderName}}: {{responder_message}}
  *
  * Interactions are blank-line-separated. Returns '' when the list is empty;
- * callers substitute a context-appropriate fallback ("No prior interactions
- * yet." / "You haven't done much yet today.") in the prompt.
- *
- * @param interactions Already filtered + ordered by the caller.
- * @param avatarsById  Lookup so we can print names without an extra join.
+ * callers substitute a context-appropriate fallback.
  */
 export function formatTranscript(args: {
   interactions: ReadonlyArray<InteractionRow>;
   avatarsById: ReadonlyMap<string, AvatarRow>;
 }): string {
-  // TODO: map each interaction to two lines, '\n'-joined; join interactions
-  // with '\n\n'.
-  void args;
-  return '';
+  const { interactions, avatarsById } = args;
+  if (interactions.length === 0) return '';
+  return interactions
+    .map((it) => {
+      const initiator = avatarsById.get(it.initiatorAvatarId);
+      const responder = avatarsById.get(it.responderAvatarId);
+      const initiatorName = initiator?.name ?? 'Unknown';
+      const responderName = responder?.name ?? 'Unknown';
+      return `${initiatorName}: ${it.initiatorMessage}\n${responderName}: ${it.responderMessage}`;
+    })
+    .join('\n\n');
 }
 
 /**
- * Convenience wrapper for "manager↔worker history for one specific worker"
- * — used by the manager's user prompt ("RECENT INTERACTIONS WITH {{W}}").
- * Filters the interactions list to just the ones where both participants
- * are this manager and this worker (in either direction).
+ * Convenience wrapper for "history between two specific avatars" — used by
+ * the manager's user prompt ("RECENT INTERACTIONS WITH {{W}}") and peer
+ * prompts ("PRIOR HISTORY WITH {{partner}}"). Filters the interactions list
+ * to ones where both participants match the unordered pair {avatarA, avatarB}.
  */
 export function formatPairHistory(args: {
   interactions: ReadonlyArray<InteractionRow>;
@@ -44,10 +47,12 @@ export function formatPairHistory(args: {
   avatarB: AvatarRow;
   avatarsById: ReadonlyMap<string, AvatarRow>;
 }): string {
-  // TODO: filter interactions where {initiator, responder} == {avatarA.id, avatarB.id}
-  // (unordered pair); then call formatTranscript.
-  void args;
-  return '';
+  const { interactions, avatarA, avatarB, avatarsById } = args;
+  const filtered = interactions.filter((it) => {
+    const ids = new Set([it.initiatorAvatarId, it.responderAvatarId]);
+    return ids.has(avatarA.id) && ids.has(avatarB.id);
+  });
+  return formatTranscript({ interactions: filtered, avatarsById });
 }
 
 /**
@@ -61,8 +66,10 @@ export function formatTodaySoFar(args: {
   avatarId: string;
   avatarsById: ReadonlyMap<string, AvatarRow>;
 }): string {
-  // TODO: filter to interactions where avatarId is initiator or responder;
-  // then call formatTranscript.
-  void args;
-  return '';
+  const { interactionsThisRound, avatarId, avatarsById } = args;
+  const filtered = interactionsThisRound.filter(
+    (it) =>
+      it.initiatorAvatarId === avatarId || it.responderAvatarId === avatarId,
+  );
+  return formatTranscript({ interactions: filtered, avatarsById });
 }

@@ -54,13 +54,15 @@ export const avatarsRoutes: FastifyPluginAsync<AvatarsRouteDeps> = async (
       }
 
       const partnerId = queryParsed.data.partner ?? null;
-      let partner = null as Awaited<ReturnType<typeof db.avatars.byId>> | null;
+      type AvatarRowType = NonNullable<Awaited<ReturnType<typeof db.avatars.byId>>>;
+      let partner: AvatarRowType | null = null;
       if (partnerId !== null) {
-        partner = (await db.avatars.byId(partnerId)) ?? null;
-        if (!partner || partner.runId !== runId) {
+        const found = await db.avatars.byId(partnerId);
+        if (!found || found.runId !== runId) {
           reply.code(404);
           return { error: 'partner not found in this run' };
         }
+        partner = found;
       }
 
       // Subject's per-round state (drives `rounds[]` with private fields).
@@ -80,11 +82,9 @@ export const avatarsRoutes: FastifyPluginAsync<AvatarsRouteDeps> = async (
       const allAvatars = await db.avatars.byRunId(runId);
       const avatarsById = new Map(allAvatars.map((a) => [a.id, a]));
 
-      // TODO: situation_tag for `rounds[i].situation_tag` lives on `round`,
-      // not `round_avatar`. The shaper currently leaves it as ''. Either:
-      //   - add a join in db.roundAvatars.byAvatar; or
-      //   - pass a parallel rounds map into toAvatarDetail.
-      // Both are fine; pick one when filling the TODO.
+      // Rounds are loaded once and threaded through so the shaper can attach
+      // situation_tag to each per-round entry without a join.
+      const rounds = await db.rounds.byRunId(runId);
 
       return toAvatarDetail({
         subject,
@@ -92,6 +92,7 @@ export const avatarsRoutes: FastifyPluginAsync<AvatarsRouteDeps> = async (
         subjectRoundAvatars,
         interactions,
         avatarsById,
+        rounds,
       });
     },
   );

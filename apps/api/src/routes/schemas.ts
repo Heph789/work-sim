@@ -210,19 +210,118 @@ export function toRunDetail(args: {
     signedDelta(actual: number, expected: number): SignedDelta;
   };
 }): RunDetail {
-  // TODO: assemble per docs/many-workers/api.md.
-  //
-  // Steps:
-  //   1. Parse config_json; strip situation_tag_seed.
-  //   2. team_expected = helpers.teamExpected({...}); team_delta = signedDelta(...).
-  //   3. Group roundAvatars by round_index → rounds[i].avatars[].
-  //   4. For each avatar: build morale_curve / paper_per_round arrays
-  //      (length = rounds_completed, in round_index order). Pull last_morale
-  //      from the most recent non-null entry. paper_total = sum(paper_per_round).
-  //      For workers also compute worker_expected_share + worker_delta.
-  //   5. Return the full RunDetail shape.
-  void args;
-  return null as unknown as RunDetail;
+  const { run, avatars, rounds, roundAvatars, helpers } = args;
+  const config = JSON.parse(run.configJson) as RunConfig;
+  // Strip situation_tag_seed from the public config.
+  const {
+    situation_tag_seed: _seed,
+    ...publicConfig
+  } = config;
+  void _seed;
+
+  const teamExp = helpers.teamExpected({
+    targetPaper: run.targetPaper,
+    roundsCompleted: run.roundsCompleted,
+    roundsTotal: run.roundsTotal,
+  });
+  const teamDelta = helpers.signedDelta(run.paperTotal, teamExp);
+
+  const roundsSorted = [...rounds].sort((a, b) => a.roundIndex - b.roundIndex);
+  const roundAvatarsByRound = new Map<number, RoundAvatarRowLike[]>();
+  for (const ra of roundAvatars) {
+    const arr = roundAvatarsByRound.get(ra.roundIndex) ?? [];
+    arr.push(ra);
+    roundAvatarsByRound.set(ra.roundIndex, arr);
+  }
+
+  const dashboardRounds: DashboardRound[] = roundsSorted.map((r) => {
+    const avatarRows = roundAvatarsByRound.get(r.roundIndex) ?? [];
+    const dashboardAvatars: DashboardRoundAvatar[] = avatarRows.map((ra) => ({
+      avatar_id: ra.avatarId,
+      morale: ra.morale,
+      paper_sold: ra.paperSold,
+    }));
+    return {
+      round_index: r.roundIndex,
+      situation_tag: r.situationTag,
+      created_at: r.createdAt,
+      avatars: dashboardAvatars,
+    };
+  });
+
+  const numWorkers = avatars.filter((a) => a.roleInSim === 'worker').length;
+
+  const perAvatar: DashboardPerAvatar[] = avatars.map((a) => {
+    const isWorker = a.roleInSim === 'worker';
+    const ownEntries = roundAvatars
+      .filter((ra) => ra.avatarId === a.id)
+      .sort((x, y) => x.roundIndex - y.roundIndex);
+
+    // Build per-round-index series (length = rounds_completed).
+    const moraleCurve: Array<number | null> = [];
+    const paperPerRound: Array<number | null> = [];
+    for (let i = 1; i <= run.roundsCompleted; i++) {
+      const entry = ownEntries.find((e) => e.roundIndex === i);
+      moraleCurve.push(entry ? entry.morale : null);
+      paperPerRound.push(entry ? entry.paperSold : null);
+    }
+
+    let lastMorale: number | null = null;
+    for (let i = moraleCurve.length - 1; i >= 0; i--) {
+      if (moraleCurve[i] != null) {
+        lastMorale = moraleCurve[i] as number;
+        break;
+      }
+    }
+
+    let paperTotal: number | null = null;
+    let expectedShare: number | null = null;
+    let workerDelta: SignedDelta | null = null;
+    if (isWorker) {
+      paperTotal = paperPerRound.reduce(
+        (acc: number, v) => acc + (v ?? 0),
+        0,
+      );
+      expectedShare = helpers.workerExpectedShare({
+        targetPaper: run.targetPaper,
+        numWorkers,
+        roundsCompleted: run.roundsCompleted,
+        roundsTotal: run.roundsTotal,
+      });
+      workerDelta = helpers.signedDelta(paperTotal, expectedShare);
+    }
+
+    return {
+      avatar_id: a.id,
+      name: a.name,
+      role_in_sim: a.roleInSim,
+      role_label: a.roleLabel,
+      paper_total: paperTotal,
+      worker_expected_share: expectedShare,
+      worker_delta: workerDelta,
+      last_morale: lastMorale,
+      morale_curve: moraleCurve,
+      paper_per_round: paperPerRound,
+    };
+  });
+
+  return {
+    id: run.id,
+    created_at: run.createdAt,
+    status: run.status,
+    rounds_total: run.roundsTotal,
+    rounds_completed: run.roundsCompleted,
+    target_paper: run.targetPaper,
+    paper_total: run.paperTotal,
+    team_expected: teamExp,
+    team_delta: teamDelta,
+    experiment_id: run.experimentId,
+    config: publicConfig,
+    rounds: dashboardRounds,
+    per_avatar: perAvatar,
+    error_message: run.errorMessage,
+    failed_at_round: run.failedAtRound,
+  };
 }
 
 // ─── Response shaper — drilldown ────────────────────────────────────────────
@@ -244,16 +343,19 @@ export function toAvatarDetail(args: {
   interactions: InteractionRowLike[];
   /** Resolved per-id avatar metadata — drives the embedded initiator/responder names. */
   avatarsById: ReadonlyMap<string, AvatarRowLike>;
+  /** Per-run rounds metadata — used to attach situation_tag to subject rounds. */
+  rounds: ReadonlyArray<RoundRowLike>;
 }): AvatarDetail {
   const { subject, partner, subjectRoundAvatars, interactions, avatarsById } =
     args;
 
+  const situationTagByRound = new Map<number, string>(
+    args.rounds.map((r) => [r.roundIndex, r.situationTag]),
+  );
+
   const rounds: DrilldownRoundEntry[] = subjectRoundAvatars.map((r) => ({
     round_index: r.roundIndex,
-    // TODO: situation_tag isn't on round_avatar; route handler must supply
-    // it via a separate join with the round table OR via a parallel
-    // round-row map. Threading that here keeps this shaper pure.
-    situation_tag: '',
+    situation_tag: situationTagByRound.get(r.roundIndex) ?? '',
     morale: r.morale,
     morale_rationale: r.moraleRationale,
     self_perception: r.selfPerception,
@@ -314,6 +416,3 @@ export function toAvatarDetail(args: {
   };
 }
 
-// DashboardRound, DashboardRoundAvatar, DashboardPerAvatar are imported as
-// types only — they're consumed inside `toRunDetail`'s TODO body when the
-// dashboard aggregation is filled in. No runtime references needed here.
