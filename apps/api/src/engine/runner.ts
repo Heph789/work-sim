@@ -9,6 +9,7 @@ import {
   OpeningTurnSchema,
   ReactionTurnSchema,
   InitiatorReflectionSchema,
+  STARTING_MORALE,
   type AvatarProfile,
   type OpeningTurn,
   type ReactionTurn,
@@ -49,7 +50,7 @@ void PROMPT_TEMPLATE_VERSION;
  * in config_json so historical runs are tied to the engine version that
  * produced them — necessary for reproducibility.
  */
-export const SIM_ENGINE_VERSION = 'v3';
+export const SIM_ENGINE_VERSION = 'v4';
 
 /**
  * Worker's running internal state. Morale is the absolute 0..100 running
@@ -87,7 +88,7 @@ export class Runner {
         w.id,
         {
           selfPerception: INITIAL_SELF_PERCEPTION,
-          morale: 50,
+          morale: STARTING_MORALE,
           moraleRationale: '',
         },
       ]),
@@ -416,9 +417,11 @@ export class Runner {
 
     let order = args.orderStart;
 
+    const maxUniquePairs = (workers.length * (workers.length - 1)) / 2;
+    const K = Math.min(workers.length, maxUniquePairs);
     const pairs = samplePairs(
       workers,
-      workers.length,
+      K,
       `${config.situation_tag_seed}:${roundIndex}:peer`,
     );
 
