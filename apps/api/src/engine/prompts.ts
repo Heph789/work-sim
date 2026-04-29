@@ -31,7 +31,7 @@ import {
 } from "./transcript.js";
 
 /** Bumped whenever any of the prompt skeletons changes. */
-export const PROMPT_TEMPLATE_VERSION = "v3";
+export const PROMPT_TEMPLATE_VERSION = "v4";
 
 /**
  * Default initial self-perception for every worker on round 1 before they've
@@ -168,7 +168,7 @@ You report to ${manager.name}, the ${manager.role_label}. You also work alongsid
 
 You will respond with a JSON object containing:
 - "message": Your reply to ${manager.name}, in 1–3 short sentences. Speak naturally. No narration of physical actions. Stay in character.
-- "updated_self_perception": A 1–2 sentence update to your private internal monologue based on this exchange. Mention specific people by name where relevant. ${manager.name} cannot see this.
+- "updated_self_perception": A 1–2 sentence revision of your internal monologue above, incorporating what just happened. Preserve threads from earlier in the day unless this exchange genuinely changes them — this should read as one person's evolving narrative across the day, not a fresh reaction to the latest exchange. Mention specific people by name where relevant. ${manager.name} cannot see this.
 ${MORALE_DELTA_FIELDS}`;
 
   const todaySoFar = formatTodaySoFar({
@@ -294,7 +294,7 @@ You work alongside several other employees. You are about to RESPOND to your cow
 
 You will respond with a JSON object containing:
 - "message": What you say to ${partner.name}, in 1–3 short sentences. Speak naturally. No narration of physical actions. Stay in character.
-- "updated_self_perception": A 1–2 sentence update to your private internal monologue based on this exchange. Mention specific people by name where relevant. ${partner.name} cannot see this.
+- "updated_self_perception": A 1–2 sentence revision of your internal monologue above, incorporating what just happened. Preserve threads from earlier in the day unless this exchange genuinely changes them — this should read as one person's evolving narrative across the day, not a fresh reaction to the latest exchange. Mention specific people by name where relevant. ${partner.name} cannot see this.
 ${MORALE_DELTA_FIELDS}`;
 
   const todaySoFar = formatTodaySoFar({
@@ -361,7 +361,7 @@ ${self.values}
 You just had a brief hallway exchange with your coworker ${partner.name}, who works as a ${partner.role_label}. Now reflect privately on how it landed.
 
 You will respond with a JSON object containing:
-- "updated_self_perception": A 1–2 sentence update to your private internal monologue based on this exchange. Mention specific people by name where relevant. ${partner.name} cannot see this.
+- "updated_self_perception": A 1–2 sentence revision of your internal monologue above, incorporating what just happened. Preserve threads from earlier in the day unless this exchange genuinely changes them — this should read as one person's evolving narrative across the day, not a fresh reaction to the latest exchange. Mention specific people by name where relevant. ${partner.name} cannot see this.
 ${MORALE_DELTA_FIELDS}`;
 
   const todaySoFar = formatTodaySoFar({
