@@ -1,6 +1,6 @@
-// Filterable list of an avatar's interactions, used on the drilldown page.
-// Owns its own filter UI; the parent passes the full filtered/unfiltered
-// data and the active filter values via query string.
+// Avatar-drilldown-specific wrapper around InteractionsList. Owns the filter
+// UI (round + partner) and delegates rendering to the shared list, which
+// handles the round grouping + per-block layout.
 //
 // Filters (per docs/many-workers/design.md §14.2 / §14.3):
 // - Round filter: a single round_index, or "all".
@@ -10,7 +10,7 @@
 'use client';
 
 import type { AvatarView, InteractionView } from '@work-sim/shared';
-import { InteractionBlock } from './interaction-block';
+import { InteractionsList } from './interactions-list';
 
 export interface AvatarInteractionsListProps {
   /** Whose drilldown this is. */
@@ -138,22 +138,12 @@ export function AvatarInteractionsList({
         </label>
       </div>
 
-      {filtered.length === 0 ? (
-        <div className="text-sm text-gray-500 italic py-6 text-center">
-          No interactions match these filters.
-        </div>
-      ) : (
-        <div>
-          {filtered.map((it) => (
-            <InteractionBlock
-              key={it.id}
-              interaction={it}
-              focusAvatar={focusAvatar}
-              avatars={avatars}
-            />
-          ))}
-        </div>
-      )}
+      <InteractionsList
+        interactions={filtered}
+        avatars={avatars}
+        focusAvatar={focusAvatar}
+        emptyMessage="No interactions match these filters."
+      />
     </div>
   );
 }

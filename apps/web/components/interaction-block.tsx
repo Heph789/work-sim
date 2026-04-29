@@ -1,26 +1,34 @@
-// One interaction in the avatar drilldown view. Replaces the old
-// `round-block.tsx` from the single-worker prototype. Renders one exchange
-// (manager 1:1 or peer convo) with both messages plus the relevant morale
-// fields.
+// One interaction (manager 1:1 or peer convo) rendered as a block: header +
+// both messages + a morale block at the bottom.
 //
-// Visual cues:
-// - Header line: "Round N · order K · {situation_tag}" + "manager 1:1" or
-//   "peer" pill, derived from participants' roles.
-// - Direction badge relative to the focused avatar: "{name} initiated" /
-//   "{name} responded". The viewer is an outside observer — never "you".
-// - Manager rows have no initiator-side morale (locked-decisions §15).
+// Two modes:
+// - Drilldown (focusAvatar set): the block is part of a single avatar's
+//   timeline. The morale block shows only the focused avatar's side
+//   (information asymmetry — partner-side morale is private to the partner).
+//   A direction badge identifies whether the focused avatar initiated or
+//   responded.
+// - Overview (focusAvatar omitted): the block is part of the run-wide
+//   timeline. The morale block shows whichever sides have non-null morale
+//   data, labeled by avatar name. No direction badge.
+//
+// Round number + situation_tag are intentionally NOT in this block — the
+// parent (InteractionsList) groups by round and renders that chrome once
+// per round, not once per interaction.
 
 'use client';
 
 import type { AvatarView, InteractionView } from '@work-sim/shared';
-import { SITUATION_TAGS } from '@work-sim/shared';
 
 export interface InteractionBlockProps {
   interaction: InteractionView;
-  /** Avatar whose drilldown we're rendering — drives the "{name} initiated/responded" badge. */
-  focusAvatar: AvatarView;
   /** All avatars in the run, used to render names + roles. */
   avatars: AvatarView[];
+  /**
+   * If set, the block is part of this avatar's drilldown timeline. Drives the
+   * direction badge and restricts the morale block to the focused side only.
+   * Omit for the run-wide overview list.
+   */
+  focusAvatar?: AvatarView;
 }
 
 /** Linear lookup is fine — N is small per design.md §1. */
@@ -43,33 +51,60 @@ function classify(initiator: AvatarView | undefined, responder: AvatarView | und
   return 'peer';
 }
 
+interface MoraleEntryProps {
+  name: string;
+  morale: number;
+  rationale: string | null;
+  selfPerception: string | null;
+}
+
+function MoraleEntry({ name, morale, rationale, selfPerception }: MoraleEntryProps) {
+  return (
+    <div>
+      <div>
+        <span className="text-gray-400">{name} morale:</span> {morale}
+      </div>
+      {rationale && (
+        <div>
+          <span className="text-gray-400">why:</span> {rationale}
+        </div>
+      )}
+      {selfPerception && (
+        <div>
+          <span className="text-gray-400">self-perception:</span> {selfPerception}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function InteractionBlock({ interaction, focusAvatar, avatars }: InteractionBlockProps) {
   const initiator = findAvatar(avatars, interaction.initiator_avatar_id);
   const responder = findAvatar(avatars, interaction.responder_avatar_id);
   const kind = classify(initiator, responder);
 
-  const tagDesc = SITUATION_TAGS.find((t) => t.tag === interaction.situation_tag)?.description;
-  const focusInitiated = interaction.initiator_avatar_id === focusAvatar.id;
-  const focusIsManager = focusAvatar.role_in_sim === 'manager';
+  const focusInitiated = focusAvatar
+    ? interaction.initiator_avatar_id === focusAvatar.id
+    : false;
+  const focusIsManager = focusAvatar?.role_in_sim === 'manager';
 
-  // The "self_perception" / "morale" fields on the focused avatar's side are
-  // private. We render them on the focused avatar's lines but not on the
-  // partner's lines, even though the partner's are present in the data.
-  // (This is a UI-level cue — the wire shape carries everything.)
+  // Decide which sides' morale to render.
+  // - Drilldown: only the focused avatar's side, and only when meaningful
+  //   (managers have null morale in v1).
+  // - Overview: every side that has a non-null morale value.
+  const showInitiatorMorale = focusAvatar
+    ? focusInitiated && !focusIsManager && interaction.initiator_morale !== null
+    : interaction.initiator_morale !== null;
+  const showResponderMorale = focusAvatar ? !focusInitiated : true;
+  const hasMorale = showInitiatorMorale || showResponderMorale;
 
   return (
     <article className="py-4 border-b last:border-b-0">
       <header className="flex items-center justify-between gap-3 mb-2">
         <div className="text-xs text-gray-500 uppercase tracking-wide">
-          Round {interaction.round_index} · order {interaction.order_in_round}
+          order {interaction.order_in_round}
         </div>
         <div className="flex items-center gap-2">
-          <span
-            className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 cursor-help"
-            title={tagDesc ?? interaction.situation_tag}
-          >
-            {interaction.situation_tag}
-          </span>
           <span
             className={`text-xs px-2 py-0.5 rounded-full ${
               kind === 'manager-1on1'
@@ -79,66 +114,42 @@ export function InteractionBlock({ interaction, focusAvatar, avatars }: Interact
           >
             {kind === 'manager-1on1' ? 'manager 1:1' : 'peer'}
           </span>
-          <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-800">
-            {focusAvatar.name} {focusInitiated ? 'initiated' : 'responded'}
-          </span>
+          {focusAvatar && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-800">
+              {focusAvatar.name} {focusInitiated ? 'initiated' : 'responded'}
+            </span>
+          )}
         </div>
       </header>
 
-      {/* Initiator line. */}
       <p className="text-sm mb-2 whitespace-pre-wrap">
         <strong className="text-gray-900">{initiator?.name ?? 'Initiator'}:</strong>{' '}
         <span className="text-gray-800">{interaction.initiator_message}</span>
       </p>
 
-      {/* Initiator-side morale — only when initiator is not the manager AND
-          the focused avatar is the initiator (private to that avatar). For
-          all other rows (responder-side, or someone else's drilldown) we
-          omit these to keep the prompt scoping intuitions visible in the UI. */}
-      {focusInitiated &&
-        !focusIsManager &&
-        interaction.initiator_morale !== null && (
-          <div className="ml-4 mb-2 text-xs text-gray-500">
-            <div>
-              <span className="text-gray-400">morale:</span>{' '}
-              {interaction.initiator_morale}
-            </div>
-            {interaction.initiator_morale_rationale && (
-              <div>
-                <span className="text-gray-400">why:</span>{' '}
-                {interaction.initiator_morale_rationale}
-              </div>
-            )}
-            {interaction.initiator_self_perception && (
-              <div>
-                <span className="text-gray-400">self-perception:</span>{' '}
-                {interaction.initiator_self_perception}
-              </div>
-            )}
-          </div>
-        )}
-
-      {/* Responder line. */}
       <p className="text-sm mb-2 whitespace-pre-wrap">
         <strong className="text-gray-900">{responder?.name ?? 'Responder'}:</strong>{' '}
         <span className="text-gray-800">{interaction.responder_message}</span>
       </p>
 
-      {/* Responder-side morale — present whenever the focused avatar IS the responder. */}
-      {!focusInitiated && (
-        <div className="ml-4 mb-2 text-xs text-gray-500">
-          <div>
-            <span className="text-gray-400">morale:</span>{' '}
-            {interaction.responder_morale}
-          </div>
-          <div>
-            <span className="text-gray-400">why:</span>{' '}
-            {interaction.responder_morale_rationale}
-          </div>
-          <div>
-            <span className="text-gray-400">self-perception:</span>{' '}
-            {interaction.responder_self_perception}
-          </div>
+      {hasMorale && (
+        <div className="ml-4 mt-2 space-y-2 text-xs text-gray-500">
+          {showInitiatorMorale && interaction.initiator_morale !== null && (
+            <MoraleEntry
+              name={initiator?.name ?? 'initiator'}
+              morale={interaction.initiator_morale}
+              rationale={interaction.initiator_morale_rationale}
+              selfPerception={interaction.initiator_self_perception}
+            />
+          )}
+          {showResponderMorale && (
+            <MoraleEntry
+              name={responder?.name ?? 'responder'}
+              morale={interaction.responder_morale}
+              rationale={interaction.responder_morale_rationale}
+              selfPerception={interaction.responder_self_perception}
+            />
+          )}
         </div>
       )}
     </article>

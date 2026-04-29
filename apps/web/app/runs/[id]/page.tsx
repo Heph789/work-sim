@@ -23,6 +23,7 @@ import type { AvatarView } from '@work-sim/shared';
 import { useRunPolling } from '@/hooks/use-run-polling';
 import { DashboardHeader } from '@/components/dashboard-header';
 import { AvatarTable } from '@/components/avatar-table';
+import { InteractionsList } from '@/components/interactions-list';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -116,6 +117,15 @@ export default function RunDashboardPage({ params }: PageProps) {
         avatars={run.avatars}
         roundAvatars={run.round_avatars}
       />
+
+      <section className="mt-6 bg-white border rounded p-4">
+        <h2 className="text-lg font-semibold mb-3">Interactions</h2>
+        <InteractionsList
+          interactions={run.interactions}
+          avatars={run.avatars}
+          emptyMessage="No interactions yet — waiting on the first round."
+        />
+      </section>
     </>
   );
 }
