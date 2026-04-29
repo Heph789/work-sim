@@ -19,11 +19,13 @@
 
 import { use } from 'react';
 import Link from 'next/link';
-import type { AvatarView } from '@work-sim/shared';
 import { useRunPolling } from '@/hooks/use-run-polling';
 import { DashboardHeader } from '@/components/dashboard-header';
 import { AvatarTable } from '@/components/avatar-table';
-import { InteractionsList } from '@/components/interactions-list';
+// TODO: re-enable interactions list on run-overview once the backend includes
+// interactions in RunDetail. Today's GET /runs/:id is interaction-free
+// (design.md §14.1) — interactions only come from the per-avatar drilldown.
+// import { InteractionsList } from '@/components/interactions-list';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -58,8 +60,8 @@ export default function RunDashboardPage({ params }: PageProps) {
     );
   }
 
-  const manager: AvatarView | undefined = run.avatars.find((a) => a.role_in_sim === 'manager');
-  const workerCount = run.avatars.filter((a) => a.role_in_sim === 'worker').length;
+  const manager = run.per_avatar.find((a) => a.role_in_sim === 'manager');
+  const workerCount = run.per_avatar.filter((a) => a.role_in_sim === 'worker').length;
   const managerName = manager?.name ?? 'Manager';
 
   const paceText = describePace({
@@ -112,20 +114,19 @@ export default function RunDashboardPage({ params }: PageProps) {
         </div>
       )}
 
-      <AvatarTable
-        runId={run.id}
-        avatars={run.avatars}
-        roundAvatars={run.round_avatars}
-      />
+      <AvatarTable runId={run.id} perAvatar={run.per_avatar} />
 
+      {/* TODO: interactions list — needs backend to include interactions in RunDetail.
+          For now, interactions are only visible on the per-avatar drilldown page.
+          See design.md §14.1.
       <section className="mt-6 bg-white border rounded p-4">
         <h2 className="text-lg font-semibold mb-3">Interactions</h2>
         <InteractionsList
           interactions={run.interactions}
-          avatars={run.avatars}
           emptyMessage="No interactions yet — waiting on the first round."
         />
       </section>
+      */}
     </>
   );
 }

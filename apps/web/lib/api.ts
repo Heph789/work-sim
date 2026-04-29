@@ -5,6 +5,7 @@
 // Wire shapes are imported from @work-sim/shared so we never re-declare them.
 
 import type {
+  AvatarDetail,
   AvatarProfile,
   RunDetail,
   RunInteractionsFeed,
@@ -55,7 +56,9 @@ function withScenario(url: string): string {
  * - at least one worker in `avatars`
  */
 export interface CreateRunBody {
-  avatars: AvatarProfile[];
+  /** No `id` — the API generates uuids server-side and stores them in
+   *  both the avatar table and the config_json snapshot. */
+  avatars: Array<Omit<AvatarProfile, 'id'>>;
   target_paper: number;
   rounds_total: number;
   model?: string;
@@ -120,9 +123,10 @@ export async function listRuns(opts?: { limit?: number; cursor?: number }): Prom
 }
 
 /**
- * GET /runs/:id — full run detail with all completed rounds, all interactions,
- * all per-(round, avatar) snapshots, and the avatar roster. Polled every 2s
- * by the dashboard while status is pending|running.
+ * GET /runs/:id — dashboard-aggregated run detail (per-round + per-avatar
+ * snapshots). No interactions — those live on the per-avatar drilldown
+ * endpoint (design.md §14.1). Polled every 2s by the dashboard while
+ * status is pending|running.
  */
 export async function getRun(id: string): Promise<RunDetail> {
   const res = await fetch(withScenario(`${API_BASE}/runs/${encodeURIComponent(id)}`), {
@@ -155,6 +159,28 @@ export async function getRunInteractions(id: string): Promise<RunInteractionsFee
     );
   }
   return (await res.json()) as RunInteractionsFeed;
+}
+
+/**
+ * GET /runs/:id/avatars/:avatarId — per-avatar drilldown feed. Includes
+ * private fields (rationale, self_perception) for the subject avatar only;
+ * other participants' private state is filtered out. Optional `partner`
+ * narrows the interactions list to a specific pair (in either direction).
+ */
+export async function fetchAvatarDetail(
+  runId: string,
+  avatarId: string,
+  partner?: string,
+): Promise<AvatarDetail> {
+  const qs = partner ? `?partner=${encodeURIComponent(partner)}` : '';
+  const url = `${API_BASE}/runs/${encodeURIComponent(runId)}/avatars/${encodeURIComponent(avatarId)}${qs}`;
+  const res = await fetch(withScenario(url), { headers: { Accept: 'application/json' } });
+  if (res.status === 404) throw new RunNotFoundError(`${runId}/${avatarId}`);
+  if (!res.ok) {
+    const body = await readJson(res);
+    throw new ApiError(res.status, `GET ${url} failed (${res.status})`, body);
+  }
+  return (await res.json()) as AvatarDetail;
 }
 
 /**

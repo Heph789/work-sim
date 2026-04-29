@@ -8,67 +8,16 @@
 'use client';
 
 import Link from 'next/link';
-import type { AvatarView, RoundAvatarView } from '@work-sim/shared';
+import type { DashboardPerAvatar } from '@work-sim/shared';
 import { MoraleSparkline } from './morale-sparkline';
 
 export interface AvatarTableProps {
   runId: string;
-  avatars: AvatarView[];
-  /** End-of-round per-avatar snapshots from RunDetail. May span multiple avatars and rounds. */
-  roundAvatars: RoundAvatarView[];
+  /** Pre-aggregated per-avatar dashboard data from RunDetail.per_avatar. */
+  perAvatar: DashboardPerAvatar[];
 }
 
-/**
- * Per-avatar derived row data. Computed from the flat `roundAvatars` list so
- * the table renders without re-querying the API.
- */
-interface AvatarRowData {
-  avatar: AvatarView;
-  /** Morale series in round order, with NULL for rounds where this avatar has no value (managers). */
-  moraleSeries: (number | null)[];
-  /** Most recent non-null morale, or null if the avatar has never produced one. */
-  currentMorale: number | null;
-  /** Cumulative paper_sold across all rounds (sum of per-round paper_sold). */
-  cumulativePaper: number;
-  /** Last completed round's paper_sold, or null if none. */
-  lastRoundPaper: number | null;
-}
-
-/**
- * Reshape the flat per-(round, avatar) list into per-avatar derived data.
- * Sorts by round_index defensively even though the API returns sorted.
- */
-function buildRows(avatars: AvatarView[], roundAvatars: RoundAvatarView[]): AvatarRowData[] {
-  // Group by avatar_id, then sort each group by round_index.
-  const byAvatar = new Map<string, RoundAvatarView[]>();
-  for (const ra of roundAvatars) {
-    const arr = byAvatar.get(ra.avatar_id) ?? [];
-    arr.push(ra);
-    byAvatar.set(ra.avatar_id, arr);
-  }
-  for (const arr of byAvatar.values()) {
-    arr.sort((a, b) => a.round_index - b.round_index);
-  }
-
-  return avatars.map((avatar) => {
-    const series = byAvatar.get(avatar.id) ?? [];
-    const moraleSeries = series.map((s) => s.morale);
-    const lastWithMorale = [...series].reverse().find((s) => s.morale !== null);
-    const cumulativePaper = series.reduce((sum, s) => sum + (s.paper_sold ?? 0), 0);
-    const lastRoundPaper = series.length === 0 ? null : (series[series.length - 1]!.paper_sold);
-    return {
-      avatar,
-      moraleSeries,
-      currentMorale: lastWithMorale?.morale ?? null,
-      cumulativePaper,
-      lastRoundPaper,
-    };
-  });
-}
-
-export function AvatarTable({ runId, avatars, roundAvatars }: AvatarTableProps) {
-  const rows = buildRows(avatars, roundAvatars);
-
+export function AvatarTable({ runId, perAvatar }: AvatarTableProps) {
   return (
     <div className="bg-white border rounded overflow-hidden">
       <table className="min-w-full text-sm">
@@ -83,38 +32,46 @@ export function AvatarTable({ runId, avatars, roundAvatars }: AvatarTableProps) 
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => {
-            const isManager = row.avatar.role_in_sim === 'manager';
+          {perAvatar.map((row) => {
+            const isManager = row.role_in_sim === 'manager';
+            const lastRoundPaper =
+              row.paper_per_round.length === 0
+                ? null
+                : row.paper_per_round[row.paper_per_round.length - 1]!;
             return (
-              <tr key={row.avatar.id} className="border-t hover:bg-gray-50">
+              <tr key={row.avatar_id} className="border-t hover:bg-gray-50">
                 <td className="px-4 py-2">
                   <Link
-                    href={`/runs/${runId}/avatars/${row.avatar.id}`}
+                    href={`/runs/${runId}/avatars/${row.avatar_id}`}
                     className="text-blue-700 hover:underline"
                   >
-                    {row.avatar.name}
+                    {row.name}
                   </Link>
                 </td>
-                <td className="px-4 py-2 text-gray-700">{row.avatar.role_label}</td>
+                <td className="px-4 py-2 text-gray-700">{row.role_label}</td>
                 <td className="px-4 py-2 text-right tabular-nums">
-                  {row.currentMorale === null ? (
+                  {row.last_morale === null ? (
                     <span className="text-gray-300">—</span>
                   ) : (
-                    row.currentMorale
+                    row.last_morale
                   )}
                 </td>
                 <td className="px-4 py-2 text-right tabular-nums">
-                  {isManager ? <span className="text-gray-300">—</span> : row.cumulativePaper}
-                </td>
-                <td className="px-4 py-2 text-right tabular-nums">
-                  {isManager || row.lastRoundPaper === null ? (
+                  {isManager || row.paper_total === null ? (
                     <span className="text-gray-300">—</span>
                   ) : (
-                    row.lastRoundPaper
+                    row.paper_total
+                  )}
+                </td>
+                <td className="px-4 py-2 text-right tabular-nums">
+                  {isManager || lastRoundPaper === null ? (
+                    <span className="text-gray-300">—</span>
+                  ) : (
+                    lastRoundPaper
                   )}
                 </td>
                 <td className="px-4 py-2">
-                  <MoraleSparkline values={row.moraleSeries} />
+                  <MoraleSparkline values={row.morale_curve} />
                 </td>
               </tr>
             );

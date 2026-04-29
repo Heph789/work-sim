@@ -14,13 +14,18 @@
 
 import type {
   AvatarProfile,
-  AvatarView,
   CreateRunRequest,
   RunDetail,
 } from '@work-sim/shared';
-import { fabricateRound, STARTING_MORALE } from './fabricate.js';
+import {
+  buildPerAvatar,
+  computeSignedDelta,
+  computeTeamExpected,
+  projectRounds,
+} from './build-run.js';
+import { STARTING_MORALE } from './fabricate.js';
 import { SCENARIOS } from './scenarios/index.js';
-import type { MockRun } from './types.js';
+import type { MockDrilldown, MockRun } from './types.js';
 
 /**
  * One round of fabricated state advances every TICK_MS milliseconds. 4s/round
@@ -80,43 +85,62 @@ export function tickIfRunning(run: MockRun): void {
   const target = Math.min(run.rounds_total, Math.floor(elapsed / TICK_MS));
   if (target <= run.rounds_completed) return;
 
-  // Reconstruct per-worker prevMorale from the most recent round_avatar row
-  // for each worker. (Cheap: O(rounds * avatars).)
-  const workers = run.avatars.filter((a) => a.role_in_sim === 'worker');
+  const avatars = Object.values(run._drilldown.avatarProfiles);
+  const workers = avatars.filter((a) => a.role_in_sim === 'worker');
+
+  // Reconstruct per-worker prevMorale from the most recent drilldown round
+  // entry for each worker.
   const prevMorale: Record<string, number> = {};
   for (const w of workers) {
-    const last = [...run.round_avatars]
-      .filter((ra) => ra.avatar_id === w.id && ra.morale !== null)
-      .sort((a, b) => a.round_index - b.round_index)
-      .pop();
+    const entries = run._drilldown.roundEntries[w.id] ?? [];
+    const last = [...entries].reverse().find((e) => e.morale !== null);
     prevMorale[w.id] = last?.morale ?? STARTING_MORALE;
   }
 
-  // Use an arbitrary stable seed for tag picking: hash of run id.
   const seed = hashStr(run.id);
+  const projection = projectRounds({
+    avatars,
+    seed,
+    fromRound: run.rounds_completed + 1,
+    toRound: target,
+    createdAtBase: run.tick_started_at,
+    initialMorale: prevMorale,
+  });
 
-  let paperAdded = 0;
-  for (let r = run.rounds_completed + 1; r <= target; r++) {
-    const fr = fabricateRound({
-      roundIndex: r,
-      prevMorale,
-      avatars: run.avatars,
-      seed,
-      createdAtBase: run.tick_started_at + r * TICK_MS,
-      includePeer: workers.length >= 2,
-    });
-    run.rounds.push(fr.round);
-    run.round_avatars.push(...fr.roundAvatars);
-    run.interactions.push(...fr.interactions);
-    paperAdded += fr.paperThisRound;
-    for (const [k, v] of Object.entries(fr.endMorale)) prevMorale[k] = v;
+  // Append projected data into the run's existing arrays.
+  run.rounds.push(...projection.rounds);
+  run._drilldown.interactions.push(...projection.interactions);
+  for (const [aid, entries] of Object.entries(projection.roundEntries)) {
+    const dest = run._drilldown.roundEntries[aid];
+    if (dest) dest.push(...entries);
   }
   run.rounds_completed = target;
-  run.paper_total += paperAdded;
+  run.paper_total += projection.paperTotal;
 
   if (run.rounds_completed >= run.rounds_total) {
     run.status = 'completed';
   }
+
+  // Re-derive aggregate fields whose value depends on rounds_completed.
+  run.team_expected = computeTeamExpected({
+    targetPaper: run.target_paper,
+    roundsCompleted: run.rounds_completed,
+    roundsTotal: run.rounds_total,
+  });
+  run.team_delta = computeSignedDelta(run.paper_total, run.team_expected);
+  run.per_avatar = buildPerAvatar({
+    avatars,
+    projection: {
+      rounds: run.rounds,
+      interactions: run._drilldown.interactions,
+      roundEntries: run._drilldown.roundEntries,
+      endMorale: projection.endMorale,
+      paperTotal: run.paper_total,
+    },
+    targetPaper: run.target_paper,
+    roundsCompleted: run.rounds_completed,
+    roundsTotal: run.rounds_total,
+  });
 }
 
 /**
@@ -126,7 +150,8 @@ export function tickIfRunning(run: MockRun): void {
  */
 export function buildRunFromRequest(body: CreateRunRequest): MockRun {
   const id = shortId();
-  const avatars: AvatarView[] = body.avatars.map((a: AvatarProfile, i) => ({
+  // Generate run-scoped uuids; manager first then workers in submission order.
+  const avatars: AvatarProfile[] = body.avatars.map((a, i) => ({
     id: `${id}-a${i + 1}`,
     role_in_sim: a.role_in_sim,
     name: a.name,
@@ -135,10 +160,15 @@ export function buildRunFromRequest(body: CreateRunRequest): MockRun {
     values: a.values,
     baseline_output: a.baseline_output,
   }));
-  // Stable order: manager first, then workers preserving submission order.
   avatars.sort((a, b) => {
     if (a.role_in_sim === b.role_in_sim) return 0;
     return a.role_in_sim === 'manager' ? -1 : 1;
+  });
+
+  const teamExpected = computeTeamExpected({
+    targetPaper: body.target_paper,
+    roundsCompleted: 0,
+    roundsTotal: body.rounds_total,
   });
 
   const detail: RunDetail = {
@@ -149,30 +179,44 @@ export function buildRunFromRequest(body: CreateRunRequest): MockRun {
     rounds_completed: 0,
     target_paper: body.target_paper,
     paper_total: 0,
+    team_expected: teamExpected,
+    team_delta: computeSignedDelta(0, teamExpected),
     experiment_id: null,
     config: {
-      avatars: avatars.map((a) => ({
-        role_in_sim: a.role_in_sim,
-        name: a.name,
-        role_label: a.role_label,
-        personality: a.personality,
-        values: a.values,
-        baseline_output: a.baseline_output,
-      })),
+      avatars: avatars.slice(),
       model: body.model ?? 'gpt-4.1',
       temperature: body.temperature ?? 0.8,
       top_p: 1.0,
       prompt_template_version: 'mock-1',
       sim_engine_version: 'mock-1',
     },
-    avatars,
     rounds: [],
-    round_avatars: [],
-    interactions: [],
+    per_avatar: buildPerAvatar({
+      avatars,
+      projection: {
+        rounds: [],
+        interactions: [],
+        roundEntries: Object.fromEntries(avatars.map((a) => [a.id, []])),
+        endMorale: Object.fromEntries(
+          avatars.filter((a) => a.role_in_sim === 'worker').map((w) => [w.id, STARTING_MORALE]),
+        ),
+        paperTotal: 0,
+      },
+      targetPaper: body.target_paper,
+      roundsCompleted: 0,
+      roundsTotal: body.rounds_total,
+    }),
     error_message: null,
     failed_at_round: null,
   };
-  return { ...detail, tick_started_at: Date.now() };
+
+  const drilldown: MockDrilldown = {
+    interactions: [],
+    roundEntries: Object.fromEntries(avatars.map((a) => [a.id, []])),
+    avatarProfiles: Object.fromEntries(avatars.map((a) => [a.id, a])),
+  };
+
+  return { ...detail, tick_started_at: Date.now(), _drilldown: drilldown };
 }
 
 /**
@@ -185,7 +229,6 @@ export function resetScenario(scenario: string): void {
 }
 
 function shortId(): string {
-  // randomUUID exists in Node 19+; Next 15 ships on Node 18.17+. Available.
   return globalThis.crypto.randomUUID().split('-')[0]!;
 }
 

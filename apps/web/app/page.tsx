@@ -68,7 +68,7 @@ export default function RunsListPage() {
                     </Link>
                   </td>
                   <td className="px-4 py-2">{r.manager_name}</td>
-                  <td className="px-4 py-2 text-right tabular-nums">{r.n_workers}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{r.worker_names.length}</td>
                   <td className="px-4 py-2 text-right tabular-nums">
                     {r.rounds_completed}/{r.rounds_total}
                   </td>

@@ -13,16 +13,15 @@
 
 'use client';
 
-import type { AvatarProfile } from '@work-sim/shared';
 import { PRESETS_BY_ROLE } from '@work-sim/shared';
 import { AvatarForm } from './avatar-form';
-import { presetToProfile } from './preset-dropdown';
+import { presetToProfile, type AvatarDraft } from './preset-dropdown';
 
 export interface WorkersListEditorProps {
   /** Current worker profiles. Order is the deterministic worker iteration order. */
-  workers: AvatarProfile[];
+  workers: AvatarDraft[];
   /** Called whenever any worker is edited / added / removed. */
-  onChange: (next: AvatarProfile[]) => void;
+  onChange: (next: AvatarDraft[]) => void;
 }
 
 /**
@@ -31,7 +30,7 @@ export interface WorkersListEditorProps {
  * person; falls back to the first preset (then to a blank profile) once
  * we've cycled.
  */
-function nextWorker(existing: AvatarProfile[]): AvatarProfile {
+function nextWorker(existing: AvatarDraft[]): AvatarDraft {
   const workerPresets = PRESETS_BY_ROLE.worker;
   const usedNames = new Set(existing.map((w) => w.name));
   const fresh = workerPresets.find((p) => !usedNames.has(p.name));
@@ -50,7 +49,7 @@ function nextWorker(existing: AvatarProfile[]): AvatarProfile {
 }
 
 export function WorkersListEditor({ workers, onChange }: WorkersListEditorProps) {
-  const setAt = (index: number, value: AvatarProfile) => {
+  const setAt = (index: number, value: AvatarDraft) => {
     const next = workers.slice();
     next[index] = { ...value, role_in_sim: 'worker' };
     onChange(next);

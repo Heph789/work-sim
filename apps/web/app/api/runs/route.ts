@@ -10,7 +10,6 @@
 
 import type {
   CreateRunRequest,
-  RunDetail,
   RunListItem,
 } from '@work-sim/shared';
 import {
@@ -69,11 +68,12 @@ export async function POST(req: Request): Promise<Response> {
   return Response.json({ id: run.id }, { status: 201, headers });
 }
 
-/** Project a MockRun (which is a RunDetail + tick_started_at) into the list-row shape. */
+/** Project a MockRun into the list-row shape. */
 function toListItem(run: MockRun): RunListItem {
-  void (run satisfies RunDetail);
-  const manager = run.avatars.find((a) => a.role_in_sim === 'manager');
-  const nWorkers = run.avatars.filter((a) => a.role_in_sim === 'worker').length;
+  const manager = run.per_avatar.find((a) => a.role_in_sim === 'manager');
+  const workerNames = run.per_avatar
+    .filter((a) => a.role_in_sim === 'worker')
+    .map((a) => a.name);
   const hitTarget =
     run.status === 'completed' ? run.paper_total >= run.target_paper : null;
   return {
@@ -86,6 +86,6 @@ function toListItem(run: MockRun): RunListItem {
     paper_total: run.paper_total,
     hit_target: hitTarget,
     manager_name: manager?.name ?? '(no manager)',
-    n_workers: nWorkers,
+    worker_names: workerNames,
   };
 }

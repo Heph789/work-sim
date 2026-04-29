@@ -1,10 +1,9 @@
-// Shared "list of interactions, grouped by round" component. Used in two
-// places:
-// - The dashboard (run overview) — full list, no focus avatar.
-// - The avatar drilldown — pre-filtered to one avatar's interactions, with
-//   `focusAvatar` set so each block gets a direction badge and the right
-//   morale-side display. The drilldown's filter UI is owned by its caller
-//   (avatar-interactions-list.tsx); this component just renders.
+// Shared "list of interactions, grouped by round" component.
+//
+// Source data is `DrilldownInteraction[]` — the only place interactions live
+// in the wire shape (design.md §14.2 / api.md). Names are embedded on each
+// interaction's `initiator` / `responder`, so this component does not need a
+// separate avatars list.
 //
 // Grouping rationale: round_index + situation_tag are per-round properties.
 // Showing them once per group is denser and easier to scan than once per
@@ -12,17 +11,15 @@
 
 'use client';
 
-import type { AvatarView, InteractionView } from '@work-sim/shared';
+import type { DrilldownInteraction } from '@work-sim/shared';
 import { SITUATION_TAGS } from '@work-sim/shared';
-import { InteractionBlock } from './interaction-block';
+import { InteractionBlock, type FocusAvatar } from './interaction-block';
 
 export interface InteractionsListProps {
   /** Interactions to render. Caller may pre-filter (e.g. drilldown filters). */
-  interactions: InteractionView[];
-  /** All avatars in the run, used to render names + roles. */
-  avatars: AvatarView[];
+  interactions: DrilldownInteraction[];
   /** When set, each block is rendered in drilldown mode (direction badge, focused-side morale). */
-  focusAvatar?: AvatarView;
+  focusAvatar?: FocusAvatar;
   /** Override for the empty-state copy. Defaults to a generic message. */
   emptyMessage?: string;
 }
@@ -30,12 +27,12 @@ export interface InteractionsListProps {
 interface RoundGroup {
   roundIndex: number;
   situationTag: string;
-  items: InteractionView[];
+  items: DrilldownInteraction[];
 }
 
 /** Group interactions by round_index, preserving order_in_round within each group. */
-function groupByRound(interactions: InteractionView[]): RoundGroup[] {
-  const byRound = new Map<number, InteractionView[]>();
+function groupByRound(interactions: DrilldownInteraction[]): RoundGroup[] {
+  const byRound = new Map<number, DrilldownInteraction[]>();
   for (const it of interactions) {
     const arr = byRound.get(it.round_index) ?? [];
     arr.push(it);
@@ -58,7 +55,6 @@ function groupByRound(interactions: InteractionView[]): RoundGroup[] {
 
 export function InteractionsList({
   interactions,
-  avatars,
   focusAvatar,
   emptyMessage = 'No interactions yet.',
 }: InteractionsListProps) {
@@ -94,7 +90,6 @@ export function InteractionsList({
                 <InteractionBlock
                   key={it.id}
                   interaction={it}
-                  avatars={avatars}
                   focusAvatar={focusAvatar}
                 />
               ))}

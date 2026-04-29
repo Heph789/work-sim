@@ -8,16 +8,16 @@
 
 'use client';
 
-import type { AvatarProfile, AvatarRole } from '@work-sim/shared';
-import { PresetDropdown } from './preset-dropdown';
+import type { AvatarRole } from '@work-sim/shared';
+import { PresetDropdown, type AvatarDraft } from './preset-dropdown';
 
 export interface AvatarFormProps {
   /** Which slot this panel represents. Filters the preset dropdown. */
   role: AvatarRole;
   /** Current form values for this avatar. */
-  value: AvatarProfile;
+  value: AvatarDraft;
   /** Called whenever any field changes. Parent merges into the run draft. */
-  onChange: (next: AvatarProfile) => void;
+  onChange: (next: AvatarDraft) => void;
   /**
    * Optional title override — useful in the workers list where each worker
    * gets a numbered label ("Worker 1", "Worker 2"). Defaults to the role name.
@@ -36,7 +36,7 @@ const DEFAULT_TITLE: Record<AvatarRole, string> = {
 };
 
 export function AvatarForm({ role, value, onChange, title, onRemove }: AvatarFormProps) {
-  const update = <K extends keyof AvatarProfile>(field: K, next: AvatarProfile[K]) =>
+  const update = <K extends keyof AvatarDraft>(field: K, next: AvatarDraft[K]) =>
     onChange({ ...value, [field]: next });
 
   // Workers must have ≥1 baseline_output; managers may use 0 (unused in v1).

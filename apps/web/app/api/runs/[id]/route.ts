@@ -31,9 +31,9 @@ export async function GET(req: Request, ctx: RouteContext): Promise<Response> {
   return Response.json(toDetail(run), { headers });
 }
 
-/** Strip the internal `tick_started_at` before sending over the wire. */
+/** Strip the internal `tick_started_at` and `_drilldown` before sending over the wire. */
 function toDetail(run: MockRun): RunDetail {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { tick_started_at, ...detail } = run;
+  const { tick_started_at, _drilldown, ...detail } = run;
   return detail;
 }

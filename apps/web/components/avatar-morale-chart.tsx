@@ -7,7 +7,7 @@
 
 'use client';
 
-import type { RoundAvatarView } from '@work-sim/shared';
+import type { DrilldownRoundEntry } from '@work-sim/shared';
 import {
   CartesianGrid,
   Line,
@@ -19,8 +19,8 @@ import {
 } from 'recharts';
 
 export interface AvatarMoraleChartProps {
-  /** Per-(round, avatar) rows for the focused avatar only, sorted by round_index. */
-  perRound: RoundAvatarView[];
+  /** Drilldown per-round entries for the focused avatar, sorted by round_index. */
+  perRound: DrilldownRoundEntry[];
 }
 
 export function AvatarMoraleChart({ perRound }: AvatarMoraleChartProps) {

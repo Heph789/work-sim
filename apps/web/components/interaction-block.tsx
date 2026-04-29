@@ -1,5 +1,5 @@
 // One interaction (manager 1:1 or peer convo) rendered as a block: header +
-// both messages + a morale block at the bottom.
+// both messages + a morale-delta block at the bottom.
 //
 // Two modes:
 // - Drilldown (focusAvatar set): the block is part of a single avatar's
@@ -7,7 +7,7 @@
 //   (information asymmetry — partner-side morale is private to the partner).
 //   A direction badge identifies whether the focused avatar initiated or
 //   responded.
-// - Overview (focusAvatar omitted): the block is part of the run-wide
+// - Overview (focusAvatar omitted): the block is part of a run-wide
 //   timeline. The morale block shows whichever sides have non-null morale
 //   data, labeled by avatar name. No direction badge.
 //
@@ -17,35 +17,33 @@
 
 'use client';
 
-import type { AvatarView, InteractionView } from '@work-sim/shared';
+import type { AvatarRole, DrilldownInteraction } from '@work-sim/shared';
+
+/** Minimum focus shape: matches the embedded participant on DrilldownInteraction. */
+export interface FocusAvatar {
+  id: string;
+  name: string;
+  role_in_sim: AvatarRole;
+}
 
 export interface InteractionBlockProps {
-  interaction: InteractionView;
-  /** All avatars in the run, used to render names + roles. */
-  avatars: AvatarView[];
+  interaction: DrilldownInteraction;
   /**
    * If set, the block is part of this avatar's drilldown timeline. Drives the
    * direction badge and restricts the morale block to the focused side only.
    * Omit for the run-wide overview list.
    */
-  focusAvatar?: AvatarView;
-}
-
-/** Linear lookup is fine — N is small per design.md §1. */
-function findAvatar(avatars: AvatarView[], id: string): AvatarView | undefined {
-  return avatars.find((a) => a.id === id);
+  focusAvatar?: FocusAvatar;
 }
 
 /**
  * Manager-vs-peer is derived from participants' role_in_sim — there is no
  * `phase` column in the schema (design.md §2 + §11).
  */
-function classify(initiator: AvatarView | undefined, responder: AvatarView | undefined):
+function classify(initiatorRole: AvatarRole, responderRole: AvatarRole):
   | 'manager-1on1'
-  | 'peer'
-  | 'unknown' {
-  if (!initiator || !responder) return 'unknown';
-  if (initiator.role_in_sim === 'manager' || responder.role_in_sim === 'manager') {
+  | 'peer' {
+  if (initiatorRole === 'manager' || responderRole === 'manager') {
     return 'manager-1on1';
   }
   return 'peer';
@@ -53,48 +51,41 @@ function classify(initiator: AvatarView | undefined, responder: AvatarView | und
 
 interface MoraleEntryProps {
   name: string;
-  morale: number;
+  delta: number;
   rationale: string | null;
-  selfPerception: string | null;
 }
 
-function MoraleEntry({ name, morale, rationale, selfPerception }: MoraleEntryProps) {
+function MoraleEntry({ name, delta, rationale }: MoraleEntryProps) {
+  const sign = delta > 0 ? '+' : '';
   return (
     <div>
       <div>
-        <span className="text-gray-400">{name} morale:</span> {morale}
+        <span className="text-gray-400">{name} morale Δ:</span> {sign}
+        {delta}
       </div>
       {rationale && (
         <div>
           <span className="text-gray-400">why:</span> {rationale}
         </div>
       )}
-      {selfPerception && (
-        <div>
-          <span className="text-gray-400">self-perception:</span> {selfPerception}
-        </div>
-      )}
     </div>
   );
 }
 
-export function InteractionBlock({ interaction, focusAvatar, avatars }: InteractionBlockProps) {
-  const initiator = findAvatar(avatars, interaction.initiator_avatar_id);
-  const responder = findAvatar(avatars, interaction.responder_avatar_id);
-  const kind = classify(initiator, responder);
+export function InteractionBlock({ interaction, focusAvatar }: InteractionBlockProps) {
+  const { initiator, responder } = interaction;
+  const kind = classify(initiator.role_in_sim, responder.role_in_sim);
 
-  const focusInitiated = focusAvatar
-    ? interaction.initiator_avatar_id === focusAvatar.id
-    : false;
+  const focusInitiated = focusAvatar ? initiator.id === focusAvatar.id : false;
   const focusIsManager = focusAvatar?.role_in_sim === 'manager';
 
-  // Decide which sides' morale to render.
+  // Decide which sides' morale-delta to render.
   // - Drilldown: only the focused avatar's side, and only when meaningful
   //   (managers have null morale in v1).
-  // - Overview: every side that has a non-null morale value.
+  // - Overview: every side that has a non-null delta.
   const showInitiatorMorale = focusAvatar
-    ? focusInitiated && !focusIsManager && interaction.initiator_morale !== null
-    : interaction.initiator_morale !== null;
+    ? focusInitiated && !focusIsManager && interaction.initiator_morale_delta !== null
+    : interaction.initiator_morale_delta !== null;
   const showResponderMorale = focusAvatar ? !focusInitiated : true;
   const hasMorale = showInitiatorMorale || showResponderMorale;
 
@@ -123,31 +114,29 @@ export function InteractionBlock({ interaction, focusAvatar, avatars }: Interact
       </header>
 
       <p className="text-sm mb-2 whitespace-pre-wrap">
-        <strong className="text-gray-900">{initiator?.name ?? 'Initiator'}:</strong>{' '}
+        <strong className="text-gray-900">{initiator.name}:</strong>{' '}
         <span className="text-gray-800">{interaction.initiator_message}</span>
       </p>
 
       <p className="text-sm mb-2 whitespace-pre-wrap">
-        <strong className="text-gray-900">{responder?.name ?? 'Responder'}:</strong>{' '}
+        <strong className="text-gray-900">{responder.name}:</strong>{' '}
         <span className="text-gray-800">{interaction.responder_message}</span>
       </p>
 
       {hasMorale && (
         <div className="ml-4 mt-2 space-y-2 text-xs text-gray-500">
-          {showInitiatorMorale && interaction.initiator_morale !== null && (
+          {showInitiatorMorale && interaction.initiator_morale_delta !== null && (
             <MoraleEntry
-              name={initiator?.name ?? 'initiator'}
-              morale={interaction.initiator_morale}
+              name={initiator.name}
+              delta={interaction.initiator_morale_delta}
               rationale={interaction.initiator_morale_rationale}
-              selfPerception={interaction.initiator_self_perception}
             />
           )}
           {showResponderMorale && (
             <MoraleEntry
-              name={responder?.name ?? 'responder'}
-              morale={interaction.responder_morale}
+              name={responder.name}
+              delta={interaction.responder_morale_delta}
               rationale={interaction.responder_morale_rationale}
-              selfPerception={interaction.responder_self_perception}
             />
           )}
         </div>

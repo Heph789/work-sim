@@ -13,19 +13,22 @@
 import type { AvatarProfile, AvatarPreset, AvatarRole } from '@work-sim/shared';
 import { PRESETS } from '@work-sim/shared';
 
+/** Form-side avatar shape: same as AvatarProfile minus the id (server-generated). */
+export type AvatarDraft = Omit<AvatarProfile, 'id'>;
+
 export interface PresetDropdownProps {
   /** Filter the list to manager-only or worker-only presets. */
   role: AvatarRole;
   /** Current form value. Used to detect "(custom)" vs a matching preset. */
-  currentValue: AvatarProfile;
+  currentValue: AvatarDraft;
   /** Called when the user picks a preset (not when "(custom)" is shown). */
-  onSelect: (preset: AvatarProfile) => void;
+  onSelect: (preset: AvatarDraft) => void;
 }
 
 const CUSTOM_VALUE = '__custom__';
 
-/** Strip the preset wrapper fields (key, display_name) → AvatarProfile. */
-export function presetToProfile(preset: AvatarPreset): AvatarProfile {
+/** Strip the preset wrapper fields (key, display_name) → form-side AvatarDraft. */
+export function presetToProfile(preset: AvatarPreset): AvatarDraft {
   return {
     role_in_sim: preset.role_in_sim,
     name: preset.name,
@@ -36,8 +39,8 @@ export function presetToProfile(preset: AvatarPreset): AvatarProfile {
   };
 }
 
-/** True when every AvatarProfile field on `value` matches the preset. */
-function matchesPreset(value: AvatarProfile, preset: AvatarPreset): boolean {
+/** True when every AvatarDraft field on `value` matches the preset. */
+function matchesPreset(value: AvatarDraft, preset: AvatarPreset): boolean {
   return (
     value.role_in_sim === preset.role_in_sim &&
     value.name === preset.name &&

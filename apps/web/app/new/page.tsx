@@ -21,11 +21,10 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { z } from 'zod';
-import type { AvatarProfile } from '@work-sim/shared';
 import { getPreset } from '@work-sim/shared';
 import { AvatarForm } from '@/components/avatar-form';
 import { WorkersListEditor } from '@/components/workers-list-editor';
-import { presetToProfile } from '@/components/preset-dropdown';
+import { presetToProfile, type AvatarDraft } from '@/components/preset-dropdown';
 import { createRun } from '@/lib/api';
 
 /** Bumped from the prior single-worker draft key so old drafts don't try to deserialize. */
@@ -34,9 +33,9 @@ const DRAFT_KEY = 'work-sim:setup-draft-v2';
 const MODEL_OPTIONS = ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini'] as const;
 
 interface SetupDraft {
-  manager: AvatarProfile;
+  manager: AvatarDraft;
   /** N≥1 workers. Order is the deterministic worker iteration order. */
-  workers: AvatarProfile[];
+  workers: AvatarDraft[];
   target_paper: number;
   rounds_total: number;
   model: string;
