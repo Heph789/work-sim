@@ -1,0 +1,6 @@
+Want a manager to be responsible for multiple workers. There should be manager to worker interactions, and worker to worker interactions. All of these interactions should have potential to affect morale. We should also be able to see a worker view (where we see all of a single persona's interactions live) and a dashboard view (where we see summary status of all of the personas). We should figure out the best way to store interactions such that they can all be queried, or be filter queried for a specific persona or pair of personas. I'm thinking a table for interactions, that has a foreign key to a round id.
+
+- Eventually, we’ll need the manager to have a report of each worker’s individual performance
+    - Need some mechanism to decide how the workers choose to interact with each other
+        - Naive: have each worker have a 1:1 conversation similar to the manager conversation before the round starts
+        - Another approach: have each persona only have a couple of conversations per round other than their manager. Store conversation history for each person and add it to prompt whenever having a conversation. Could even store a reputational score between personas that determines if they interact going forward.
