@@ -1,10 +1,13 @@
-// Recharts wrapper: morale curve. x = round_index, y = morale (0–100).
-// Just the worker's morale in v1 (manager has no morale per locked-decisions
-// #6 — schema reserves the column but the runner doesn't update it).
+// Per-avatar morale chart for the drilldown page. Recharts line chart with
+// x = round_index, y = end-of-round morale (0–100). Reuses the styling that
+// was on the prior single-worker `morale-chart.tsx`.
+//
+// Renders a placeholder when the avatar has no morale rows (managers in v1,
+// or rounds_completed = 0).
 
 'use client';
 
-import type { RoundView } from '@work-sim/shared';
+import type { RoundAvatarView } from '@work-sim/shared';
 import {
   CartesianGrid,
   Line,
@@ -15,20 +18,25 @@ import {
   YAxis,
 } from 'recharts';
 
-export interface MoraleChartProps {
-  rounds: RoundView[];
+export interface AvatarMoraleChartProps {
+  /** Per-(round, avatar) rows for the focused avatar only, sorted by round_index. */
+  perRound: RoundAvatarView[];
 }
 
-export function MoraleChart({ rounds }: MoraleChartProps) {
-  const data = rounds.map((r) => ({ round: r.round_index, morale: r.morale }));
+export function AvatarMoraleChart({ perRound }: AvatarMoraleChartProps) {
+  // Only points with a real morale value go into the chart — managers in v1
+  // produce NULL morale rows, which we don't want to plot at zero.
+  const data = perRound
+    .filter((r) => r.morale !== null)
+    .map((r) => ({ round: r.round_index, morale: r.morale as number }));
 
   return (
     <div className="bg-white border rounded p-4">
-      <h3 className="text-sm font-medium text-gray-700 mb-2">Worker morale</h3>
+      <h3 className="text-sm font-medium text-gray-700 mb-2">Morale</h3>
       <div className="h-48">
         {data.length === 0 ? (
           <div className="h-full flex items-center justify-center text-sm text-gray-400">
-            no rounds yet
+            no morale data yet
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">

@@ -1,24 +1,24 @@
-// Hand-authored Office-themed agent profiles. Static module — NOT in the
+// Hand-authored Office-themed avatar profiles. Static module — NOT in the
 // database. Each run's POST body either uses these values verbatim or edits
 // them in the form first; either way, the values are snapshotted into
-// `runs.config_json.agents[]` so editing this file later cannot contaminate
+// `run.config_json.avatars[]` so editing this file later cannot contaminate
 // past runs.
 //
-// See docs/initial-prototype/presets.md for character rationale and pairing
-// guidance.
+// Naming follows docs/many-workers/design.md §Terminology — these are
+// "avatar" presets, not "agent" presets.
 
-import type { AgentRole } from './types.js';
+import type { AvatarRole } from './types.js';
 
 /**
- * One pre-baked agent profile. `key` is a stable identifier used by the form
+ * One pre-baked avatar profile. `key` is a stable identifier used by the form
  * dropdown; `display_name` is the label shown to the user. The remaining
- * fields are the same shape as `AgentProfile` and get copied into `config_json`
+ * fields are the same shape as `AvatarProfile` and get copied into config_json
  * verbatim when the user picks the preset.
  */
-export interface AgentPreset {
+export interface AvatarPreset {
   key: string;
   display_name: string;
-  role_in_sim: AgentRole;
+  role_in_sim: AvatarRole;
   name: string;
   role_label: string;
   personality: string;
@@ -32,11 +32,11 @@ export interface AgentPreset {
  * To add a preset: append an entry; the dropdown auto-includes it. No DB
  * migration, no API change.
  */
-export const PRESETS: readonly AgentPreset[] = [
+export const PRESETS: readonly AvatarPreset[] = [
   // ── Manager presets ──────────────────────────────────────────────────────
   // Each manager has baseline_output: 0 because v1 doesn't compute manager
-  // output (locked-decisions.md #6); the column exists so the schema is
-  // symmetric for the future bidirectional case.
+  // output (design.md §15); the column exists so the schema is symmetric for
+  // the future bidirectional case.
 
   {
     key: 'michael-scott',
@@ -203,12 +203,12 @@ export const PRESETS: readonly AgentPreset[] = [
  * Pre-grouped views for the setup form: the manager dropdown shows manager
  * presets only, worker dropdown shows worker presets only.
  */
-export const PRESETS_BY_ROLE: Record<AgentRole, readonly AgentPreset[]> = {
+export const PRESETS_BY_ROLE: Record<AvatarRole, readonly AvatarPreset[]> = {
   manager: PRESETS.filter((p) => p.role_in_sim === 'manager'),
   worker: PRESETS.filter((p) => p.role_in_sim === 'worker'),
 };
 
 /** Lookup by stable key. Returns undefined if not found. */
-export function getPreset(key: string): AgentPreset | undefined {
+export function getPreset(key: string): AvatarPreset | undefined {
   return PRESETS.find((p) => p.key === key);
 }

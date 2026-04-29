@@ -1,31 +1,31 @@
-// "Load preset" dropdown above each agent form. Lists the manager presets in
+// "Load preset" dropdown above each avatar form. Lists the manager presets in
 // the manager panel and worker presets in the worker panel.
 //
 // Behavior:
 // - Default selection mirrors the current form values: if `value` exactly
 //   matches one of the presets, that preset's key is selected; otherwise the
 //   dropdown shows "(custom)".
-// - Picking a preset calls `onSelect(preset)` with the full AgentProfile-shaped
-//   subset → AgentForm copies all fields onto the form via its `onChange`.
+// - Picking a preset calls `onSelect(preset)` with the full AvatarProfile-shaped
+//   subset → AvatarForm copies all fields onto the form via its `onChange`.
 
 'use client';
 
-import type { AgentProfile, AgentPreset, AgentRole } from '@work-sim/shared';
+import type { AvatarProfile, AvatarPreset, AvatarRole } from '@work-sim/shared';
 import { PRESETS } from '@work-sim/shared';
 
 export interface PresetDropdownProps {
   /** Filter the list to manager-only or worker-only presets. */
-  role: AgentRole;
+  role: AvatarRole;
   /** Current form value. Used to detect "(custom)" vs a matching preset. */
-  currentValue: AgentProfile;
+  currentValue: AvatarProfile;
   /** Called when the user picks a preset (not when "(custom)" is shown). */
-  onSelect: (preset: AgentProfile) => void;
+  onSelect: (preset: AvatarProfile) => void;
 }
 
 const CUSTOM_VALUE = '__custom__';
 
-/** Strip the preset wrapper fields (key, display_name) → AgentProfile. */
-export function presetToProfile(preset: AgentPreset): AgentProfile {
+/** Strip the preset wrapper fields (key, display_name) → AvatarProfile. */
+export function presetToProfile(preset: AvatarPreset): AvatarProfile {
   return {
     role_in_sim: preset.role_in_sim,
     name: preset.name,
@@ -36,8 +36,8 @@ export function presetToProfile(preset: AgentPreset): AgentProfile {
   };
 }
 
-/** True when every AgentProfile field on `value` matches the preset. */
-function matchesPreset(value: AgentProfile, preset: AgentPreset): boolean {
+/** True when every AvatarProfile field on `value` matches the preset. */
+function matchesPreset(value: AvatarProfile, preset: AvatarPreset): boolean {
   return (
     value.role_in_sim === preset.role_in_sim &&
     value.name === preset.name &&

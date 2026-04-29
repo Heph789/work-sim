@@ -1,29 +1,42 @@
-// One agent panel — used twice on the setup screen (once for manager, once
-// for worker). Renders the preset dropdown + the five form fields. Fully
+// One avatar panel — used once for the manager and once per worker on the
+// setup screen. Renders the preset dropdown + the five form fields. Fully
 // controlled: the parent owns the `value`, this component owns no state of
 // its own.
+//
+// Replaces the prior `agent-form.tsx` from the single-worker prototype. Same
+// shape, "agent" → "avatar" rename per docs/many-workers/design.md.
 
 'use client';
 
-import type { AgentProfile, AgentRole } from '@work-sim/shared';
+import type { AvatarProfile, AvatarRole } from '@work-sim/shared';
 import { PresetDropdown } from './preset-dropdown';
 
-export interface AgentFormProps {
+export interface AvatarFormProps {
   /** Which slot this panel represents. Filters the preset dropdown. */
-  role: AgentRole;
-  /** Current form values for this agent. */
-  value: AgentProfile;
+  role: AvatarRole;
+  /** Current form values for this avatar. */
+  value: AvatarProfile;
   /** Called whenever any field changes. Parent merges into the run draft. */
-  onChange: (next: AgentProfile) => void;
+  onChange: (next: AvatarProfile) => void;
+  /**
+   * Optional title override — useful in the workers list where each worker
+   * gets a numbered label ("Worker 1", "Worker 2"). Defaults to the role name.
+   */
+  title?: string;
+  /**
+   * Optional remove handler. Rendered as an "✕" affordance in the panel's
+   * header. Only shown for workers when N>1; never for the manager.
+   */
+  onRemove?: () => void;
 }
 
-const ROLE_TITLE: Record<AgentRole, string> = {
+const DEFAULT_TITLE: Record<AvatarRole, string> = {
   manager: 'Manager',
   worker: 'Worker',
 };
 
-export function AgentForm({ role, value, onChange }: AgentFormProps) {
-  const update = <K extends keyof AgentProfile>(field: K, next: AgentProfile[K]) =>
+export function AvatarForm({ role, value, onChange, title, onRemove }: AvatarFormProps) {
+  const update = <K extends keyof AvatarProfile>(field: K, next: AvatarProfile[K]) =>
     onChange({ ...value, [field]: next });
 
   // Workers must have ≥1 baseline_output; managers may use 0 (unused in v1).
@@ -31,7 +44,19 @@ export function AgentForm({ role, value, onChange }: AgentFormProps) {
 
   return (
     <section className="bg-white border rounded p-5 space-y-4">
-      <h2 className="text-lg font-semibold">{ROLE_TITLE[role]}</h2>
+      <header className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">{title ?? DEFAULT_TITLE[role]}</h2>
+        {onRemove && (
+          <button
+            type="button"
+            className="text-sm text-gray-500 hover:text-red-700"
+            onClick={onRemove}
+            aria-label="Remove this worker"
+          >
+            ✕ Remove
+          </button>
+        )}
+      </header>
 
       <PresetDropdown role={role} currentValue={value} onSelect={onChange} />
 

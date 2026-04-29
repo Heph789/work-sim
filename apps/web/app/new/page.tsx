@@ -1,35 +1,42 @@
 // Route: GET /new
-// Screen: Setup form. Two side-by-side agent panels (manager + worker), then
-// simulation parameters, then a Run button.
+// Screen: Setup form. Manager panel + N-worker editor + simulation params +
+// Run button.
 //
-// Behavior (per docs/initial-prototype/frontend.md "Screen 2"):
-// - "Load preset" dropdown filters to the panel's role.
-// - Selecting a preset overwrites all five fields. Editing after is fine; the
-//   dropdown shows "(custom)" once any field diverges.
-// - Defaults on first visit (no localStorage): Michael Scott (manager), Jim
-//   Halpert (worker), target 500, rounds 10, model gpt-4.1, temperature 0.8.
-// - Persist last-used values in localStorage under 'work-sim:setup-draft'.
-// - Validate client-side with Zod (CreateRunRequestSchema-equivalent) before POST.
-// - On submit: POST /runs, then router.push(`/runs/${id}`).
+// Behavior (per docs/many-workers/design.md §14 + design-doc DESIGN.md §2.6):
+// - "Load preset" dropdowns filter by role.
+// - Selecting a preset overwrites all five fields of the selected slot.
+//   Editing after is fine; the dropdown shows "(custom)" once any field
+//   diverges.
+// - Defaults on first visit: Michael Scott (manager) + Jim Halpert (worker),
+//   target 500, rounds 10, model gpt-4.1, temperature 0.8.
+// - Persist last-used values in localStorage under 'work-sim:setup-draft-v2'.
+//   Bumped from v1 because the shape changed (workers[] instead of single
+//   worker). Any older draft is silently discarded.
+// - Validate client-side with Zod before POST.
+// - On submit: POST /runs with `avatars: [manager, ...workers]`, then
+//   router.push(`/runs/${id}`).
 
 'use client';
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { z } from 'zod';
-import type { AgentProfile } from '@work-sim/shared';
+import type { AvatarProfile } from '@work-sim/shared';
 import { getPreset } from '@work-sim/shared';
-import { AgentForm } from '@/components/agent-form';
+import { AvatarForm } from '@/components/avatar-form';
+import { WorkersListEditor } from '@/components/workers-list-editor';
 import { presetToProfile } from '@/components/preset-dropdown';
 import { createRun } from '@/lib/api';
 
-const DRAFT_KEY = 'work-sim:setup-draft';
+/** Bumped from the prior single-worker draft key so old drafts don't try to deserialize. */
+const DRAFT_KEY = 'work-sim:setup-draft-v2';
 
 const MODEL_OPTIONS = ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini'] as const;
 
 interface SetupDraft {
-  manager: AgentProfile;
-  worker: AgentProfile;
+  manager: AvatarProfile;
+  /** N≥1 workers. Order is the deterministic worker iteration order. */
+  workers: AvatarProfile[];
   target_paper: number;
   rounds_total: number;
   model: string;
@@ -37,7 +44,7 @@ interface SetupDraft {
 }
 
 /** Mirrors CreateRunRequestSchema in apps/api/src/routes/schemas.ts. */
-const AgentProfileZ = z.object({
+const AvatarProfileZ = z.object({
   role_in_sim: z.enum(['manager', 'worker']),
   name: z.string().min(1).max(80),
   role_label: z.string().min(1).max(80),
@@ -48,8 +55,8 @@ const AgentProfileZ = z.object({
 
 const SetupZ = z
   .object({
-    manager: AgentProfileZ,
-    worker: AgentProfileZ,
+    manager: AvatarProfileZ,
+    workers: z.array(AvatarProfileZ).min(1),
     target_paper: z.number().int().min(1),
     rounds_total: z.number().int().min(1).max(100),
     model: z.string().min(1),
@@ -59,13 +66,13 @@ const SetupZ = z
     message: 'manager panel must contain a manager',
     path: ['manager'],
   })
-  .refine((d) => d.worker.role_in_sim === 'worker', {
-    message: 'worker panel must contain a worker',
-    path: ['worker'],
+  .refine((d) => d.workers.every((w) => w.role_in_sim === 'worker'), {
+    message: 'all worker rows must have role_in_sim = worker',
+    path: ['workers'],
   })
-  .refine((d) => d.worker.baseline_output >= 1, {
-    message: 'worker baseline_output must be ≥ 1',
-    path: ['worker', 'baseline_output'],
+  .refine((d) => d.workers.every((w) => w.baseline_output >= 1), {
+    message: 'every worker baseline_output must be ≥ 1',
+    path: ['workers'],
   });
 
 function defaultDraft(): SetupDraft {
@@ -76,7 +83,7 @@ function defaultDraft(): SetupDraft {
   }
   return {
     manager: presetToProfile(michael),
-    worker: presetToProfile(jim),
+    workers: [presetToProfile(jim)],
     target_paper: 500,
     rounds_total: 10,
     model: 'gpt-4.1',
@@ -140,7 +147,9 @@ export default function NewRunPage() {
     setError(null);
     try {
       const { id } = await createRun({
-        agents: [parsed.data.manager, parsed.data.worker],
+        // Manager first, then workers — the engine treats this order as the
+        // deterministic worker iteration order for the manager phase.
+        avatars: [parsed.data.manager, ...parsed.data.workers],
         target_paper: parsed.data.target_paper,
         rounds_total: parsed.data.rounds_total,
         model: parsed.data.model,
@@ -161,18 +170,25 @@ export default function NewRunPage() {
     <>
       <h1 className="text-2xl font-semibold mb-6">New run</h1>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <AgentForm
+      {/* Manager block — exactly one. */}
+      <div className="mb-6">
+        <AvatarForm
           role="manager"
           value={draft.manager}
-          onChange={(next) => setDraft({ ...draft, manager: { ...next, role_in_sim: 'manager' } })}
-        />
-        <AgentForm
-          role="worker"
-          value={draft.worker}
-          onChange={(next) => setDraft({ ...draft, worker: { ...next, role_in_sim: 'worker' } })}
+          onChange={(next) =>
+            setDraft({ ...draft, manager: { ...next, role_in_sim: 'manager' } })
+          }
         />
       </div>
+
+      {/* Workers block — N≥1, add/remove. */}
+      <section className="mb-6">
+        <h2 className="text-lg font-semibold mb-3">Workers</h2>
+        <WorkersListEditor
+          workers={draft.workers}
+          onChange={(next) => setDraft({ ...draft, workers: next })}
+        />
+      </section>
 
       <section className="bg-white border rounded p-5 mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <label className="block">

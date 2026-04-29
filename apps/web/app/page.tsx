@@ -1,12 +1,14 @@
 // Route: GET /
 // Screen: Runs list. Table of past + in-progress runs, "New run" button.
 //
-// Behavior (per docs/initial-prototype/frontend.md "Screen 1"):
+// Behavior (per docs/many-workers/design.md §14):
 // - Newest first (the API returns rows in that order).
 // - Auto-refresh every 5s while any row is pending|running. Stops once all
 //   rows are terminal — handled inside useRuns.
 // - Empty state: "No runs yet — start your first sim."
-// - Row click → /runs/:id.
+// - Row click → /runs/:id (the dashboard).
+// - The single-worker prototype showed both names; with N workers we show
+//   the manager + a worker count.
 
 'use client';
 
@@ -45,7 +47,7 @@ export default function RunsListPage() {
               <tr>
                 <th className="px-4 py-2">Created</th>
                 <th className="px-4 py-2">Manager</th>
-                <th className="px-4 py-2">Worker</th>
+                <th className="px-4 py-2 text-right">Workers</th>
                 <th className="px-4 py-2 text-right">Rounds</th>
                 <th className="px-4 py-2 text-right">Target</th>
                 <th className="px-4 py-2 text-right">Sold</th>
@@ -62,7 +64,7 @@ export default function RunsListPage() {
                     </Link>
                   </td>
                   <td className="px-4 py-2">{r.manager_name}</td>
-                  <td className="px-4 py-2">{r.worker_name}</td>
+                  <td className="px-4 py-2 text-right tabular-nums">{r.n_workers}</td>
                   <td className="px-4 py-2 text-right tabular-nums">
                     {r.rounds_completed}/{r.rounds_total}
                   </td>
