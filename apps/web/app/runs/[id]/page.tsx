@@ -14,18 +14,18 @@
 // - Live-polled (2s while pending|running, stops on terminal status).
 // - Failure banner / completion banner — same visual language as the prior
 //   single-worker view.
+// - Run-level interactions list, polled via GET /runs/:id/interactions
+//   (separate endpoint — the dashboard payload itself omits them).
 
 'use client';
 
 import { use } from 'react';
 import Link from 'next/link';
 import { useRunPolling } from '@/hooks/use-run-polling';
+import { useRunInteractionsPolling } from '@/hooks/use-run-interactions-polling';
 import { DashboardHeader } from '@/components/dashboard-header';
 import { AvatarTable } from '@/components/avatar-table';
-// TODO: re-enable interactions list on run-overview once the backend includes
-// interactions in RunDetail. Today's GET /runs/:id is interaction-free
-// (design.md §14.1) — interactions only come from the per-avatar drilldown.
-// import { InteractionsList } from '@/components/interactions-list';
+import { InteractionsList } from '@/components/interactions-list';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -34,6 +34,13 @@ interface PageProps {
 export default function RunDashboardPage({ params }: PageProps) {
   const { id } = use(params);
   const { run, notFound, error } = useRunPolling(id);
+  const isTerminal =
+    run?.status === 'completed' ||
+    run?.status === 'failed' ||
+    run?.status === 'cancelled';
+  const { interactions, error: interactionsError } = useRunInteractionsPolling(id, {
+    paused: !run || isTerminal,
+  });
 
   if (notFound) {
     return (
@@ -116,17 +123,23 @@ export default function RunDashboardPage({ params }: PageProps) {
 
       <AvatarTable runId={run.id} perAvatar={run.per_avatar} />
 
-      {/* TODO: interactions list — needs backend to include interactions in RunDetail.
-          For now, interactions are only visible on the per-avatar drilldown page.
-          See design.md §14.1.
       <section className="mt-6 bg-white border rounded p-4">
         <h2 className="text-lg font-semibold mb-3">Interactions</h2>
-        <InteractionsList
-          interactions={run.interactions}
-          emptyMessage="No interactions yet — waiting on the first round."
-        />
+        {interactionsError && interactions === null && (
+          <div className="text-sm text-red-700">
+            Failed to load interactions: {interactionsError.message}
+          </div>
+        )}
+        {interactions === null && !interactionsError && (
+          <div className="text-sm text-gray-500">Loading interactions…</div>
+        )}
+        {interactions !== null && (
+          <InteractionsList
+            interactions={interactions}
+            emptyMessage="No interactions yet — waiting on the first round."
+          />
+        )}
       </section>
-      */}
     </>
   );
 }
