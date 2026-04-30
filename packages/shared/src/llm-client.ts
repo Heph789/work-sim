@@ -3,14 +3,22 @@
 // implement it. Switching providers is a one-line change in
 // apps/api/src/llm/index.ts (the factory).
 //
-// See docs/initial-prototype/llm-client.md for full rationale.
+// Three structured-output schemas live here, one per call site:
+//   - OpeningTurnSchema           — peer initiator's first call (message only)
+//   - ReactionTurnSchema          — worker side of manager 1:1, peer responder
+//   - InitiatorReflectionSchema   — peer initiator's second call (after reply)
+//
+// The split exists because morale updates only on REACTION to a stimulus —
+// initiating a conversation doesn't itself shift your morale, but receiving a
+// response does. So peer initiation is a 2-call dance: emit a message, then
+// after seeing the responder's reply, emit the morale delta + perception update.
 
 // DEPENDENCY: zod — already in packages/shared/package.json.
 import { z } from 'zod';
 
 /**
  * Chat-shaped message tuple. Modeled on OpenAI's shape because most provider
- * SDKs converge on it; the (future) Anthropic implementation maps internally.
+ * SDKs converge on it; the future Anthropic implementation maps internally.
  */
 export type Message =
   | { role: 'system'; content: string }
@@ -19,7 +27,7 @@ export type Message =
 
 /**
  * Per-call generation parameters. Model name is *not* hardcoded in any
- * provider — it comes from `runs.config_json.model` so different runs can use
+ * provider — it comes from `run.config_json.model` so different runs can use
  * different models without restarting the server.
  */
 export interface LLMCallOptions {
@@ -35,14 +43,11 @@ export interface LLMCallOptions {
 /**
  * The entire LLM surface used by the engine. Two methods.
  *
- * - `complete` returns free text — used for the manager turn.
- * - `completeStructured` returns a Zod-validated object — used for the worker
- *   turn (`{ message, updated_self_perception, morale }`). Implementations
- *   re-validate the parsed response with the supplied schema as defense in
- *   depth.
+ * - `complete` returns free text — used only for the manager's side of a 1:1.
+ * - `completeStructured` returns a Zod-validated object — used for every
+ *   structured emission (OpeningTurn / ReactionTurn / InitiatorReflection).
  *
  * Streaming, embeddings, and prompt-cache primitives are deliberately absent.
- * Adding `completeStream` later is additive.
  */
 export interface LLMClient {
   /** Free-text completion. Throws on persistent failure (after retries). */
@@ -64,36 +69,65 @@ export interface LLMClient {
 }
 
 /**
- * Worker-turn structured output schema. Lives next to the LLMClient interface
- * so the engine and the LLM layer agree on the wire shape.
- *
- * The morale int is the heart of the prototype — it drives paper_sold via a
- * deterministic formula in the engine (see scoring.ts).
+ * Lower/upper bound on each emitted morale delta. The avatar judges this
+ * exchange in isolation; the engine accumulates and clamps the running total
+ * to 0..100. See apps/api/src/engine/scoring.ts.
  */
-export const WorkerResponseSchema = z.object({
-  /** What the worker says back to the manager. 1–3 short sentences. */
+export const MORALE_DELTA_MIN = -10;
+export const MORALE_DELTA_MAX = 10;
+
+/**
+ * Peer initiator's first call: just emit what you say. The avatar can't yet
+ * judge how the exchange landed because there's no reply, so morale and
+ * self-perception updates are deferred to the second call.
+ */
+export const OpeningTurnSchema = z.object({
+  message: z.string().min(1).max(2000),
+});
+export type OpeningTurn = z.infer<typeof OpeningTurnSchema>;
+
+/**
+ * Used by the worker side of a manager 1:1 and by the peer responder. The
+ * speaker has full context (they've heard what was said to them) so they
+ * emit a reply AND their internal-state updates in one turn.
+ */
+export const ReactionTurnSchema = z.object({
+  /** What the avatar says. 1–3 short sentences (rule lives in the prompt). */
   message: z.string().min(1).max(2000),
 
   /**
-   * Worker's updated private self-perception. Next round's worker prompt
-   * reads this; manager prompts never see it. Preserves the asymmetry that
-   * makes the sim interesting (per locked-decisions.md #7).
+   * The avatar's updated private self-perception. Singleton per avatar,
+   * mutated every reaction. Manager prompts NEVER see any worker's
+   * self_perception (information asymmetry, design.md §7); peer prompts only
+   * see the avatar's own.
    */
   updated_self_perception: z.string().min(1).max(1000),
 
   /**
-   * 1–2 sentences explaining WHY morale moved (or didn't) this round.
-   * Forces the model to reason about morale as a delta from prior state
-   * rather than re-anchoring on a default; private to the worker.
+   * Integer in [-10, +10]. How this exchange shifted the avatar's engagement
+   * and motivation. 0 means no change. Engine sums deltas across the run and
+   * clamps to 0..100; manager-1:1 deltas are weighted before summing.
    */
-  morale_rationale: z.string().min(1).max(500),
+  morale_delta: z.number().int().min(MORALE_DELTA_MIN).max(MORALE_DELTA_MAX),
 
   /**
-   * 0–100. 50 is neutral; <30 demoralized; >70 energized. The LLM emits this
-   * subjective signal; the engine consumes it deterministically.
+   * One short sentence explaining the delta — what about this exchange
+   * shifted (or didn't shift) the avatar's engagement. Forces the model to
+   * reason about the change rather than emitting a hash. Kept private to the
+   * avatar — never appears in another avatar's prompt.
    */
-  morale: z.number().int().min(0).max(100),
+  morale_rationale: z.string().min(1).max(500),
 });
+export type ReactionTurn = z.infer<typeof ReactionTurnSchema>;
 
-/** Inferred TS type — use this in engine code rather than re-declaring. */
-export type WorkerResponse = z.infer<typeof WorkerResponseSchema>;
+/**
+ * Peer initiator's second call. The initiator emitted a message in call 1;
+ * now they've seen the responder's reply and are reflecting on the exchange.
+ * No new message — just internal-state updates.
+ */
+export const InitiatorReflectionSchema = z.object({
+  updated_self_perception: z.string().min(1).max(1000),
+  morale_delta: z.number().int().min(MORALE_DELTA_MIN).max(MORALE_DELTA_MAX),
+  morale_rationale: z.string().min(1).max(500),
+});
+export type InitiatorReflection = z.infer<typeof InitiatorReflectionSchema>;

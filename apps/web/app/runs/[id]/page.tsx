@@ -1,33 +1,37 @@
 // Route: GET /runs/[id]
-// Screen: Run detail. Live (polling) or completed view. The most important
-// screen — shows a run as it unfolds.
+// Screen: Dashboard (per docs/many-workers/design.md §14.1).
 //
-// Behavior (per docs/initial-prototype/frontend.md "Screen 3"):
-// - Header: agent names + arrow, current round / total, target / sold / pace,
-//   progress bar, status pill.
-// - Left column: transcript of completed rounds + "generating round N..." while
-//   running.
-// - Right column: morale curve + paper-sold-per-round bar chart (Recharts).
-// - On completion: ✓ "Hit target: X/Y" or ✗ "Missed target: X/Y" banner.
-// - On failure: red banner "Run failed at round N." + error_message.
+// Replaces the prior single-worker run-detail screen. The transcript view is
+// gone — with N workers + peer interactions a flat transcript no longer fits;
+// instead the dashboard shows per-avatar summary rows, and clicking a row
+// routes to the avatar drilldown.
+//
+// Behavior:
+// - Header: manager name + worker count + status pill, target/sold/pace,
+//   progress bar.
+// - Avatar table: one row per avatar (manager first), with current morale,
+//   cumulative paper, last-round paper, and morale sparkline.
+// - Live-polled (2s while pending|running, stops on terminal status).
+// - Failure banner / completion banner — same visual language as the prior
+//   single-worker view.
 
 'use client';
 
 import { use } from 'react';
 import Link from 'next/link';
-import type { AgentProfile } from '@work-sim/shared';
 import { useRunPolling } from '@/hooks/use-run-polling';
-import { ProgressBar } from '@/components/progress-bar';
-import { StatusPill } from '@/components/status-pill';
-import { Transcript } from '@/components/transcript';
-import { MoraleChart } from '@/components/morale-chart';
-import { PaperChart } from '@/components/paper-chart';
+import { DashboardHeader } from '@/components/dashboard-header';
+import { AvatarTable } from '@/components/avatar-table';
+// TODO: re-enable interactions list on run-overview once the backend includes
+// interactions in RunDetail. Today's GET /runs/:id is interaction-free
+// (design.md §14.1) — interactions only come from the per-avatar drilldown.
+// import { InteractionsList } from '@/components/interactions-list';
 
 interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-export default function RunDetailPage({ params }: PageProps) {
+export default function RunDashboardPage({ params }: PageProps) {
   const { id } = use(params);
   const { run, notFound, error } = useRunPolling(id);
 
@@ -56,12 +60,11 @@ export default function RunDetailPage({ params }: PageProps) {
     );
   }
 
-  const manager = run.config.agents.find((a: AgentProfile) => a.role_in_sim === 'manager');
-  const worker = run.config.agents.find((a: AgentProfile) => a.role_in_sim === 'worker');
+  const manager = run.per_avatar.find((a) => a.role_in_sim === 'manager');
+  const workerCount = run.per_avatar.filter((a) => a.role_in_sim === 'worker').length;
   const managerName = manager?.name ?? 'Manager';
-  const workerName = worker?.name ?? 'Worker';
 
-  const pace = describePace({
+  const paceText = describePace({
     roundsCompleted: run.rounds_completed,
     roundsTotal: run.rounds_total,
     paperTotal: run.paper_total,
@@ -75,25 +78,16 @@ export default function RunDetailPage({ params }: PageProps) {
     <>
       <Link href="/" className="text-sm text-gray-600 hover:underline">◀ Back to runs</Link>
 
-      <section className="mt-4 mb-6 bg-white border rounded p-5 space-y-3">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <h2 className="text-xl font-semibold">
-            {managerName} <span className="text-gray-400">→</span> {workerName}
-          </h2>
-          <StatusPill status={run.status} />
-        </div>
-
-        <div className="text-sm text-gray-600">
-          Round {Math.min(run.rounds_completed + (run.status === 'running' ? 1 : 0), run.rounds_total)} of{' '}
-          {run.rounds_total} · target {run.target_paper} · sold {run.paper_total} · {pace}
-        </div>
-
-        <ProgressBar
-          value={run.paper_total}
-          max={run.target_paper}
-          label={`${run.paper_total} / ${run.target_paper}`}
-        />
-      </section>
+      <DashboardHeader
+        managerName={managerName}
+        workerCount={workerCount}
+        status={run.status}
+        roundsCompleted={run.rounds_completed}
+        roundsTotal={run.rounds_total}
+        targetPaper={run.target_paper}
+        paperTotal={run.paper_total}
+        paceText={paceText}
+      />
 
       {run.status === 'failed' && (
         <div className="mb-6 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
@@ -120,21 +114,19 @@ export default function RunDetailPage({ params }: PageProps) {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div>
-          <Transcript
-            rounds={run.rounds}
-            status={run.status}
-            expectedRounds={run.rounds_total}
-            managerName={managerName}
-            workerName={workerName}
-          />
-        </div>
-        <div className="space-y-6">
-          <MoraleChart rounds={run.rounds} />
-          <PaperChart rounds={run.rounds} />
-        </div>
-      </div>
+      <AvatarTable runId={run.id} perAvatar={run.per_avatar} />
+
+      {/* TODO: interactions list — needs backend to include interactions in RunDetail.
+          For now, interactions are only visible on the per-avatar drilldown page.
+          See design.md §14.1.
+      <section className="mt-6 bg-white border rounded p-4">
+        <h2 className="text-lg font-semibold mb-3">Interactions</h2>
+        <InteractionsList
+          interactions={run.interactions}
+          emptyMessage="No interactions yet — waiting on the first round."
+        />
+      </section>
+      */}
     </>
   );
 }

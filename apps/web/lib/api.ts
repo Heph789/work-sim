@@ -5,22 +5,60 @@
 // Wire shapes are imported from @work-sim/shared so we never re-declare them.
 
 import type {
-  AgentProfile,
+  AvatarDetail,
+  AvatarProfile,
   RunDetail,
+  RunInteractionsFeed,
   RunListItem,
 } from '@work-sim/shared';
 
 /**
- * Base URL of the Fastify API. Read from NEXT_PUBLIC_API_URL at module load.
- * Fallback is the API's default dev port. The `NEXT_PUBLIC_` prefix is what
- * makes Next inline the value into the client bundle.
+ * Base URL of the runs API.
+ *
+ * Two modes:
+ * - Mock mode (default while NEXT_PUBLIC_USE_MOCK is unset OR === 'true'):
+ *   point at the same-origin Next route handlers under `/api`. No real
+ *   backend required — the dev server serves both the UI and the API.
+ *   See apps/web/app/api/runs/* and apps/web/lib/mock/*.
+ * - Real mode (NEXT_PUBLIC_USE_MOCK === 'false'): fall through to the
+ *   Fastify API URL in NEXT_PUBLIC_API_URL (default :4000).
+ *
+ * The `NEXT_PUBLIC_` prefix is what makes Next inline the value into the
+ * client bundle.
  */
-export const API_BASE: string =
-  process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK !== 'false';
+export const API_BASE: string = USE_MOCK
+  ? '/api'
+  : (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000');
 
-/** Body shape for POST /runs. Mirrors apps/api/src/routes/schemas.ts CreateRunRequestSchema. */
+/**
+ * In mock mode, propagate `?scenario=…` from the page URL onto every API
+ * fetch. Without this the route handler only sees the query when the user
+ * navigates with it directly; client-side polling fetches strip it. The route
+ * handler also Set-Cookies the chosen scenario so subsequent navigations
+ * (e.g. into a run dashboard whose URL has no query) keep using it.
+ */
+function withScenario(url: string): string {
+  if (!USE_MOCK || typeof window === 'undefined') return url;
+  const scenario = new URLSearchParams(window.location.search).get('scenario');
+  if (!scenario) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}scenario=${encodeURIComponent(scenario)}`;
+}
+
+/**
+ * Body shape for POST /runs. Mirrors apps/api/src/routes/schemas.ts
+ * CreateRunRequestSchema. The setup page builds this from its draft and
+ * passes it to `createRun`.
+ *
+ * Constraints (validated server-side):
+ * - exactly one manager in `avatars`
+ * - at least one worker in `avatars`
+ */
 export interface CreateRunBody {
-  agents: AgentProfile[];
+  /** No `id` — the API generates uuids server-side and stores them in
+   *  both the avatar table and the config_json snapshot. */
+  avatars: Array<Omit<AvatarProfile, 'id'>>;
   target_paper: number;
   rounds_total: number;
   model?: string;
@@ -57,6 +95,7 @@ export class ApiError extends Error {
 
 /** Read a JSON body if there is one; tolerate empty/non-JSON for non-2xx errors. */
 async function readJson(res: Response): Promise<unknown> {
+  // TODO: trim once the API guarantees JSON content-type on non-2xx
   const text = await res.text();
   if (!text) return null;
   try {
@@ -75,7 +114,7 @@ export async function listRuns(opts?: { limit?: number; cursor?: number }): Prom
   if (opts?.limit !== undefined) qs.set('limit', String(opts.limit));
   if (opts?.cursor !== undefined && opts.cursor !== null) qs.set('cursor', String(opts.cursor));
   const url = `${API_BASE}/runs${qs.toString() ? `?${qs.toString()}` : ''}`;
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
+  const res = await fetch(withScenario(url), { headers: { Accept: 'application/json' } });
   if (!res.ok) {
     const body = await readJson(res);
     throw new ApiError(res.status, `GET /runs failed (${res.status})`, body);
@@ -84,11 +123,13 @@ export async function listRuns(opts?: { limit?: number; cursor?: number }): Prom
 }
 
 /**
- * GET /runs/:id — full run detail with all completed rounds. Polled every 2s
- * by the run-detail screen while status is pending|running.
+ * GET /runs/:id — dashboard-aggregated run detail (per-round + per-avatar
+ * snapshots). No interactions — those live on the per-avatar drilldown
+ * endpoint (design.md §14.1). Polled every 2s by the dashboard while
+ * status is pending|running.
  */
 export async function getRun(id: string): Promise<RunDetail> {
-  const res = await fetch(`${API_BASE}/runs/${encodeURIComponent(id)}`, {
+  const res = await fetch(withScenario(`${API_BASE}/runs/${encodeURIComponent(id)}`), {
     headers: { Accept: 'application/json' },
   });
   if (res.status === 404) throw new RunNotFoundError(id);
@@ -100,11 +141,54 @@ export async function getRun(id: string): Promise<RunDetail> {
 }
 
 /**
+ * GET /runs/:id/interactions — full interaction timeline ordered by
+ * (round_index, order_in_round). `self_perception` is stripped server-side.
+ */
+export async function getRunInteractions(id: string): Promise<RunInteractionsFeed> {
+  const res = await fetch(
+    `${API_BASE}/runs/${encodeURIComponent(id)}/interactions`,
+    { headers: { Accept: 'application/json' } },
+  );
+  if (res.status === 404) throw new RunNotFoundError(id);
+  if (!res.ok) {
+    const body = await readJson(res);
+    throw new ApiError(
+      res.status,
+      `GET /runs/${id}/interactions failed (${res.status})`,
+      body,
+    );
+  }
+  return (await res.json()) as RunInteractionsFeed;
+}
+
+/**
+ * GET /runs/:id/avatars/:avatarId — per-avatar drilldown feed. Includes
+ * private fields (rationale, self_perception) for the subject avatar only;
+ * other participants' private state is filtered out. Optional `partner`
+ * narrows the interactions list to a specific pair (in either direction).
+ */
+export async function fetchAvatarDetail(
+  runId: string,
+  avatarId: string,
+  partner?: string,
+): Promise<AvatarDetail> {
+  const qs = partner ? `?partner=${encodeURIComponent(partner)}` : '';
+  const url = `${API_BASE}/runs/${encodeURIComponent(runId)}/avatars/${encodeURIComponent(avatarId)}${qs}`;
+  const res = await fetch(withScenario(url), { headers: { Accept: 'application/json' } });
+  if (res.status === 404) throw new RunNotFoundError(`${runId}/${avatarId}`);
+  if (!res.ok) {
+    const body = await readJson(res);
+    throw new ApiError(res.status, `GET ${url} failed (${res.status})`, body);
+  }
+  return (await res.json()) as AvatarDetail;
+}
+
+/**
  * POST /runs — create a new run. Returns the new run id, which the setup
  * screen uses to navigate to /runs/:id.
  */
 export async function createRun(body: CreateRunBody): Promise<{ id: string }> {
-  const res = await fetch(`${API_BASE}/runs`, {
+  const res = await fetch(withScenario(`${API_BASE}/runs`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify(body),

@@ -6,6 +6,6 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["src/**/*", "../../packages/shared/src/**/*"],
+  "include": ["src/**/*", "scripts/**/*", "../../packages/shared/src/**/*"],
   "exclude": ["src/**/*.test.ts", "../../packages/shared/src/**/*.test.ts"]
 }

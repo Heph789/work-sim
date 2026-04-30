@@ -1,24 +1,28 @@
-// Hand-authored Office-themed agent profiles. Static module — NOT in the
+// Hand-authored Office-themed avatar profiles. Static module — NOT in the
 // database. Each run's POST body either uses these values verbatim or edits
 // them in the form first; either way, the values are snapshotted into
-// `runs.config_json.agents[]` so editing this file later cannot contaminate
+// `run.config_json.avatars[]` so editing this file later cannot contaminate
 // past runs.
 //
-// See docs/initial-prototype/presets.md for character rationale and pairing
-// guidance.
+// "Avatar" replaces the prototype's "agent" everywhere. The preset list
+// covers a manager + several workers so users can build a multi-worker team
+// without retyping profiles.
+//
+// See docs/many-workers/design.md and ../initial-prototype/presets.md.
 
-import type { AgentRole } from './types.js';
+import type { AvatarRole } from './types.js';
 
 /**
- * One pre-baked agent profile. `key` is a stable identifier used by the form
+ * One pre-baked avatar profile. `key` is a stable identifier used by the form
  * dropdown; `display_name` is the label shown to the user. The remaining
- * fields are the same shape as `AgentProfile` and get copied into `config_json`
- * verbatim when the user picks the preset.
+ * fields are the same shape as `AvatarProfile` (minus `id` — id is generated
+ * server-side at run-creation time) and get copied into `config_json` verbatim
+ * when the user picks the preset.
  */
-export interface AgentPreset {
+export interface AvatarPreset {
   key: string;
   display_name: string;
-  role_in_sim: AgentRole;
+  role_in_sim: AvatarRole;
   name: string;
   role_label: string;
   personality: string;
@@ -27,16 +31,13 @@ export interface AgentPreset {
 }
 
 /**
- * The full preset list. Ordering here is the order shown in the UI dropdown.
- *
- * To add a preset: append an entry; the dropdown auto-includes it. No DB
- * migration, no API change.
+ * Full preset list. Order here is the order shown in the UI dropdown.
+ * To add: append an entry; dropdown auto-includes. No DB migration / API change.
  */
-export const PRESETS: readonly AgentPreset[] = [
+export const PRESETS: readonly AvatarPreset[] = [
   // ── Manager presets ──────────────────────────────────────────────────────
-  // Each manager has baseline_output: 0 because v1 doesn't compute manager
-  // output (locked-decisions.md #6); the column exists so the schema is
-  // symmetric for the future bidirectional case.
+  // baseline_output: 0 because v1 doesn't compute manager output (the column
+  // exists so the schema is symmetric for the future bidirectional case).
 
   {
     key: 'michael-scott',
@@ -102,8 +103,9 @@ export const PRESETS: readonly AgentPreset[] = [
   },
 
   // ── Worker presets ───────────────────────────────────────────────────────
-  // baseline_output values come from presets.md; tuned to give a meaningful
-  // spread across the morale × baseline → paper formula.
+  // baseline_output values tuned for a meaningful spread under the morale ×
+  // baseline → paper formula. Six workers makes peer-pair sampling exercise
+  // a real space.
 
   {
     key: 'jim-halpert',
@@ -200,15 +202,14 @@ export const PRESETS: readonly AgentPreset[] = [
 ] as const;
 
 /**
- * Pre-grouped views for the setup form: the manager dropdown shows manager
- * presets only, worker dropdown shows worker presets only.
+ * Pre-grouped views for the setup form: manager dropdown / worker dropdown.
  */
-export const PRESETS_BY_ROLE: Record<AgentRole, readonly AgentPreset[]> = {
+export const PRESETS_BY_ROLE: Record<AvatarRole, readonly AvatarPreset[]> = {
   manager: PRESETS.filter((p) => p.role_in_sim === 'manager'),
   worker: PRESETS.filter((p) => p.role_in_sim === 'worker'),
 };
 
 /** Lookup by stable key. Returns undefined if not found. */
-export function getPreset(key: string): AgentPreset | undefined {
+export function getPreset(key: string): AvatarPreset | undefined {
   return PRESETS.find((p) => p.key === key);
 }
