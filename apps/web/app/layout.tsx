@@ -13,8 +13,8 @@ import './globals.css';
 
 /** Document <head> defaults. Title is overridden per-page via Next's metadata API. */
 export const metadata: Metadata = {
-  title: 'work-sim',
-  description: 'Two-agent paper-company work simulator',
+  title: 'The Paper Company',
+  description: 'A multi-avatar workplace simulator powered by LLMs.',
 };
 
 /**
@@ -27,7 +27,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className="bg-gray-50 text-gray-900 min-h-screen">
         <nav className="border-b bg-white">
           <div className="max-w-5xl mx-auto px-6 py-3 flex items-center gap-6">
-            <Link href="/" className="font-semibold">work-sim</Link>
+            <Link href="/" className="font-semibold">The Paper Company</Link>
+            <Link href="/runs" className="text-sm text-gray-600 hover:text-gray-900">Runs</Link>
             {/* TODO: add per-route nav highlighting once we have more than one entry. */}
           </div>
         </nav>

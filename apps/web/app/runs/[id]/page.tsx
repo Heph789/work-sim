@@ -45,7 +45,7 @@ export default function RunDashboardPage({ params }: PageProps) {
   if (notFound) {
     return (
       <>
-        <Link href="/" className="text-sm text-gray-600 hover:underline">◀ Back to runs</Link>
+        <Link href="/runs" className="text-sm text-gray-600 hover:underline">◀ Back to runs</Link>
         <div className="mt-6 bg-white border rounded p-8 text-center text-gray-700">
           Run <code className="text-sm">{id}</code> not found.
         </div>
@@ -56,7 +56,7 @@ export default function RunDashboardPage({ params }: PageProps) {
   if (!run) {
     return (
       <>
-        <Link href="/" className="text-sm text-gray-600 hover:underline">◀ Back to runs</Link>
+        <Link href="/runs" className="text-sm text-gray-600 hover:underline">◀ Back to runs</Link>
         <div className="mt-6 text-sm text-gray-500">Loading run…</div>
         {error && (
           <div className="mt-3 text-sm text-red-700">
@@ -83,7 +83,7 @@ export default function RunDashboardPage({ params }: PageProps) {
 
   return (
     <>
-      <Link href="/" className="text-sm text-gray-600 hover:underline">◀ Back to runs</Link>
+      <Link href="/runs" className="text-sm text-gray-600 hover:underline">◀ Back to runs</Link>
 
       <DashboardHeader
         managerName={managerName}
