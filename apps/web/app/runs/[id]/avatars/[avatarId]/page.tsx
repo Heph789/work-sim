@@ -70,7 +70,7 @@ export default function AvatarDrilldownPage({ params }: PageProps) {
   if (runNotFound || detailNotFound) {
     return (
       <>
-        <Link href="/" className="text-sm text-gray-600 hover:underline">◀ Back to runs</Link>
+        <Link href="/runs" className="text-sm text-gray-600 hover:underline">◀ Back to runs</Link>
         <div className="mt-6 bg-white border rounded p-8 text-center text-gray-700">
           {runNotFound ? (
             <>Run <code className="text-sm">{id}</code> not found.</>

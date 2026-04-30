@@ -1,6 +1,6 @@
 # work-sim
 
-A workplace simulation engine that uses AI to model manager-worker dynamics. Run simulations where a manager and workers interact over multiple rounds, with their morale and productivity shaped by conversational outcomes.
+A workplace simulation engine that uses AI to model manager-worker dynamics. Run simulations where a manager and workers interact over multiple rounds, with their morale and productivity shaped by conversational outcomes. Inspired by (Generative_Agents)[https://github.com/joonspk-research/generative_agents].
 
 ## How It Works
 

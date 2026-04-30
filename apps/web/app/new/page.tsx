@@ -234,7 +234,26 @@ export default function NewRunPage() {
           </select>
         </label>
         <label className="block">
-          <span className="label">Temperature</span>
+          <span className="label inline-flex items-center gap-1">
+            Temperature
+            <span className="relative inline-flex group" tabIndex={0}>
+              <span
+                className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-gray-200 text-[10px] font-semibold text-gray-600 cursor-help"
+                aria-label="What is temperature?"
+              >
+                ?
+              </span>
+              <span
+                role="tooltip"
+                className="pointer-events-none absolute left-1/2 top-full z-10 mt-2 w-64 -translate-x-1/2 rounded bg-gray-900 px-3 py-2 text-xs font-normal leading-snug text-white opacity-0 shadow-lg transition-opacity duration-100 group-hover:opacity-100 group-focus-within:opacity-100"
+              >
+                Controls randomness in the model&rsquo;s output. Lower values (e.g.
+                0.2) make avatars more focused and deterministic; higher values
+                (e.g. 1.0+) make them more varied and creative. 0.8 is a good
+                default for character-driven simulations.
+              </span>
+            </span>
+          </span>
           <input
             type="number"
             className="input"
