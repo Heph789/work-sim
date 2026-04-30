@@ -18,11 +18,11 @@ import type {
   AvatarProfile,
   DashboardRound,
   DashboardRoundAvatar,
-  DrilldownInteraction,
   DrilldownRoundEntry,
   SituationTagId,
 } from '@work-sim/shared';
-import { SITUATION_TAGS, pickTag } from '@work-sim/shared';
+import { SITUATION_TAGS, STARTING_MORALE, pickTag } from '@work-sim/shared';
+import type { MockInteraction } from './types.js';
 
 /** Bound a morale reading to a believable mid-range. */
 function clampMorale(n: number): number {
@@ -149,13 +149,22 @@ const PEER_REPLIES: string[] = [
   'Noted. Thanks.',
 ];
 
+/** Pool of short worker self-perception lines, picked deterministically per interaction. */
+const SELF_PERCEPTION_LINES: string[] = [
+  'Holding steady. Want to keep my head down and ship.',
+  'A little frayed, but I think I can recover by tomorrow.',
+  'Quietly proud of how I handled that one.',
+  "I'm fine. I'd rather not be the one to bring it up.",
+  'Confident in the work, less sure about the room.',
+  'Frustrated, but not at anyone in particular.',
+  'Energized — the kind of week that reminds me why I took this job.',
+  'Bracing myself a bit. Tired of feeling like I have to perform.',
+];
+
 function pickLine(pool: string[], seedStr: string): string {
   const r = rand(seedStr);
   return pool[Math.floor(r * pool.length)] ?? pool[0]!;
 }
-
-/** Default starting morale per worker. */
-export const STARTING_MORALE = 60;
 
 /**
  * Compute paper_sold = round(baseline_output * morale / 50). Worker only;
@@ -209,7 +218,7 @@ export interface FabricateRoundArgs {
 export interface FabricatedRound {
   dashboardRound: DashboardRound;
   /** All interactions emitted during this round. */
-  interactions: DrilldownInteraction[];
+  interactions: MockInteraction[];
   /** Subject-view per-round entries, keyed by avatar_id. One per avatar. */
   roundEntries: Record<string, DrilldownRoundEntry>;
   /** Updated per-worker morale after this round. */
@@ -238,12 +247,17 @@ export function fabricateRound(args: FabricateRoundArgs): FabricatedRound {
   // Track per-interaction morale deltas so the round-end morale equals the
   // sum of deltas for that worker.
   const moraleNow: Record<string, number> = { ...prevMorale };
-  const interactions: DrilldownInteraction[] = [];
+  const interactions: MockInteraction[] = [];
+  // Latest per-interaction self_perception per worker — fed into the per-round
+  // entry below so the round summary mirrors the most recent emission.
+  const lastSelfPerception: Record<string, string> = {};
 
   // Manager↔worker phase. order_in_round 0..workers-1.
   workers.forEach((worker, idx) => {
     const delta = pickDelta(`${worker.id}:${roundIndex}:mgr`, tag);
     moraleNow[worker.id] = clampMorale((moraleNow[worker.id] ?? STARTING_MORALE) + delta);
+    const sp = pickLine(SELF_PERCEPTION_LINES, `sp:${worker.id}:${roundIndex}:mgr`);
+    lastSelfPerception[worker.id] = sp;
 
     interactions.push({
       id: `int-${roundIndex}-mgr-${worker.id}`,
@@ -266,9 +280,12 @@ export function fabricateRound(args: FabricateRoundArgs): FabricatedRound {
       // Manager has no morale in v1.
       initiator_morale_delta: null,
       initiator_morale_rationale: null,
+      // Manager doesn't track self_perception either.
+      initiator_self_perception: null,
 
       responder_morale_delta: delta,
       responder_morale_rationale: `Reacted to ${tag.replace(/_/g, ' ')} during the 1:1 with ${manager.name}.`,
+      responder_self_perception: sp,
 
       created_at: createdAtBase + 10 + idx,
     });
@@ -286,6 +303,10 @@ export function fabricateRound(args: FabricateRoundArgs): FabricatedRound {
     const responderDelta = pickDelta(`${responder.id}:${roundIndex}:peer-r`, tag);
     moraleNow[initiator.id] = clampMorale((moraleNow[initiator.id] ?? STARTING_MORALE) + initiatorDelta);
     moraleNow[responder.id] = clampMorale((moraleNow[responder.id] ?? STARTING_MORALE) + responderDelta);
+    const initiatorSp = pickLine(SELF_PERCEPTION_LINES, `sp:${initiator.id}:${roundIndex}:peer-i`);
+    const responderSp = pickLine(SELF_PERCEPTION_LINES, `sp:${responder.id}:${roundIndex}:peer-r`);
+    lastSelfPerception[initiator.id] = initiatorSp;
+    lastSelfPerception[responder.id] = responderSp;
 
     interactions.push({
       id: `int-${roundIndex}-peer-${initiator.id}-${responder.id}`,
@@ -301,9 +322,11 @@ export function fabricateRound(args: FabricateRoundArgs): FabricatedRound {
 
       initiator_morale_delta: initiatorDelta,
       initiator_morale_rationale: 'Quick check-in with a teammate.',
+      initiator_self_perception: initiatorSp,
 
       responder_morale_delta: responderDelta,
       responder_morale_rationale: 'Took the question at face value.',
+      responder_self_perception: responderSp,
 
       created_at: createdAtBase + 20 + workers.length,
     });
@@ -336,7 +359,9 @@ export function fabricateRound(args: FabricateRoundArgs): FabricatedRound {
       situation_tag: tag,
       morale,
       morale_rationale: `Reacted to ${tag.replace(/_/g, ' ')} during the 1:1 with ${manager.name}.`,
-      self_perception: 'Holding steady.',
+      // Round-end self_perception is the latest one this worker emitted in
+      // the round — same convention as the real API's round_avatar table.
+      self_perception: lastSelfPerception[worker.id] ?? null,
       paper_sold: paper,
     };
   }

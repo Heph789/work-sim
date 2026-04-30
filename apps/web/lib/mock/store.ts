@@ -17,13 +17,13 @@ import type {
   CreateRunRequest,
   RunDetail,
 } from '@work-sim/shared';
+import { STARTING_MORALE } from '@work-sim/shared';
 import {
   buildPerAvatar,
   computeSignedDelta,
   computeTeamExpected,
   projectRounds,
 } from './build-run.js';
-import { STARTING_MORALE } from './fabricate.js';
 import { SCENARIOS } from './scenarios/index.js';
 import type { MockDrilldown, MockRun } from './types.js';
 

@@ -4,10 +4,13 @@
 //
 // Renders a placeholder when the avatar has no morale rows (managers in v1,
 // or rounds_completed = 0).
+//
+// Round 0 is the worker's starting morale (STARTING_MORALE), prepended so the
+// chart shows where each avatar started before any interaction shifted them.
 
 'use client';
 
-import type { DrilldownRoundEntry } from '@work-sim/shared';
+import { STARTING_MORALE, type DrilldownRoundEntry } from '@work-sim/shared';
 import {
   CartesianGrid,
   Line,
@@ -21,14 +24,19 @@ import {
 export interface AvatarMoraleChartProps {
   /** Drilldown per-round entries for the focused avatar, sorted by round_index. */
   perRound: DrilldownRoundEntry[];
+  /** When false (e.g. manager), suppress the round 0 starting-morale point. */
+  hasMoraleTrack?: boolean;
 }
 
-export function AvatarMoraleChart({ perRound }: AvatarMoraleChartProps) {
+export function AvatarMoraleChart({ perRound, hasMoraleTrack = true }: AvatarMoraleChartProps) {
   // Only points with a real morale value go into the chart — managers in v1
   // produce NULL morale rows, which we don't want to plot at zero.
-  const data = perRound
+  const realPoints = perRound
     .filter((r) => r.morale !== null)
     .map((r) => ({ round: r.round_index, morale: r.morale as number }));
+  const data = hasMoraleTrack && realPoints.length > 0
+    ? [{ round: 0, morale: STARTING_MORALE }, ...realPoints]
+    : realPoints;
 
   return (
     <div className="bg-white border rounded p-4">

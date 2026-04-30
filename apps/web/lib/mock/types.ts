@@ -12,15 +12,28 @@ import type {
 } from '@work-sim/shared';
 
 /**
+ * Internal interaction record used by the mock store. Mirrors the API's DB row
+ * (initiator/responder both store their self_perception) so the drilldown
+ * route can pick whichever side belongs to the subject when projecting to
+ * `DrilldownInteraction.subject_self_perception`. The wire shape itself never
+ * carries both sides — privacy parity with the real API.
+ */
+export interface MockInteraction extends Omit<DrilldownInteraction, 'subject_self_perception'> {
+  initiator_self_perception: string | null;
+  responder_self_perception: string | null;
+}
+
+/**
  * Per-run drilldown bookkeeping. Not part of the wire shape — the
  * /api/runs/[id]/avatars/[avatarId] route assembles AvatarDetail from this.
  */
 export interface MockDrilldown {
   /**
    * All interactions across all rounds, sorted by (round_index, order_in_round).
-   * The drilldown route filters this per (subject, partner).
+   * The drilldown route filters this per (subject, partner) and projects to
+   * the wire shape.
    */
-  interactions: DrilldownInteraction[];
+  interactions: MockInteraction[];
   /**
    * Per-avatar end-of-round entries (subject view: includes private fields).
    * Keyed by avatar_id; each entry list is sorted by round_index.

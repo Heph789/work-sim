@@ -141,6 +141,13 @@ export function InteractionBlock({ interaction, focusAvatar }: InteractionBlockP
           )}
         </div>
       )}
+
+      {focusAvatar && interaction.subject_self_perception && (
+        <div className="ml-4 mt-2 text-xs text-gray-500">
+          <span className="text-gray-400">{focusAvatar.name} self-perception:</span>{' '}
+          <span className="italic text-gray-700">{interaction.subject_self_perception}</span>
+        </div>
+      )}
     </article>
   );
 }

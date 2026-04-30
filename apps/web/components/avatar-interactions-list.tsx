@@ -9,7 +9,7 @@
 
 'use client';
 
-import type { DrilldownInteraction } from '@work-sim/shared';
+import { STARTING_MORALE, type DrilldownInteraction, type DrilldownRoundEntry } from '@work-sim/shared';
 import { InteractionsList } from './interactions-list';
 import type { FocusAvatar } from './interaction-block';
 
@@ -22,6 +22,12 @@ export interface AvatarInteractionsListProps {
    * just-this-avatar's rows.
    */
   interactions: DrilldownInteraction[];
+  /**
+   * Per-round entries for the focused avatar, sorted by round_index. Carries
+   * morale + self_perception so the round group headers can surface the
+   * subject's end-of-round inner state alongside the interactions.
+   */
+  rounds: DrilldownRoundEntry[];
   /** Active round filter ('all' or a round_index). */
   roundFilter: number | 'all';
   /** Active partner filter ('all' or partner avatar id). */
@@ -87,17 +93,27 @@ function distinctPartners(
 export function AvatarInteractionsList({
   focusAvatar,
   interactions,
+  rounds,
   roundFilter,
   partnerFilter,
   onRoundFilterChange,
   onPartnerFilterChange,
 }: AvatarInteractionsListProps) {
   const filtered = applyFilters(interactions, focusAvatar.id, roundFilter, partnerFilter);
-  const rounds = distinctRounds(interactions);
+  const distinctRoundsList = distinctRounds(interactions);
   const partnerOptions = distinctPartners(interactions, focusAvatar.id);
+
+  const showStartingMorale = focusAvatar.role_in_sim === 'worker';
+  const roundEntriesByIndex = new Map(rounds.map((r) => [r.round_index, r]));
 
   return (
     <div className="bg-white border rounded p-4">
+      {showStartingMorale && (
+        <div className="mb-3 text-xs text-gray-500">
+          <span className="text-gray-400">starting morale:</span> {STARTING_MORALE}
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-3 mb-4 text-sm">
         <label className="flex items-center gap-2">
           <span className="text-gray-600">Round</span>
@@ -110,7 +126,7 @@ export function AvatarInteractionsList({
             }}
           >
             <option value="all">all</option>
-            {rounds.map((r) => (
+            {distinctRoundsList.map((r) => (
               <option key={r} value={r}>
                 {r}
               </option>
@@ -137,6 +153,7 @@ export function AvatarInteractionsList({
       <InteractionsList
         interactions={filtered}
         focusAvatar={focusAvatar}
+        roundEntriesByIndex={roundEntriesByIndex}
         emptyMessage="No interactions match these filters."
       />
     </div>

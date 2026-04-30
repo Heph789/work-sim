@@ -16,6 +16,14 @@
 export type AvatarRole = 'manager' | 'worker';
 
 /**
+ * Morale every worker starts at, before round 1's first interaction. 50 is
+ * the engine's neutral baseline (see scoring.ts: morale=50 → output=baseline).
+ * Single source of truth for the runner, the mock fabricator, and the UI's
+ * "starting morale" annotations on the chart + interactions header.
+ */
+export const STARTING_MORALE = 50;
+
+/**
  * Snapshot of a single avatar's profile, as captured at run-creation time.
  * Lives both in `avatar` table rows AND inside `run.config_json.avatars[]`.
  * The table is the queryable canonical for FKs; the snapshot is what
@@ -220,8 +228,11 @@ export interface DrilldownRoundEntry {
  * weighting is an engine-side accounting concern. Per-round running morale
  * (the absolute 0..100 number) lives on `DrilldownRoundEntry`.
  *
- * `*_self_perception` is filtered out — the subject avatar's self_perception
- * comes through the per-round entries; other participants' is private.
+ * Privacy rule for self_perception: the LLM emits an `updated_self_perception`
+ * on every reaction, so it changes per-interaction (not just per-round).
+ * `subject_self_perception` carries the focused avatar's emitted value for
+ * this interaction — and ONLY the subject's. The partner's stays private.
+ * On the run-level interaction feed (no subject) it is always null.
  */
 export interface DrilldownInteraction {
   id: string;
@@ -237,6 +248,13 @@ export interface DrilldownInteraction {
   initiator_morale_rationale: string | null;
   responder_morale_delta: number;
   responder_morale_rationale: string;
+  /**
+   * Subject avatar's `updated_self_perception` emitted in this interaction.
+   * NULL when the subject didn't emit one here (e.g. they were the manager,
+   * or they were the peer-initiator on the opening turn before the reflection).
+   * NULL on the run-level feed since there is no subject.
+   */
+  subject_self_perception: string | null;
   created_at: number;
 }
 

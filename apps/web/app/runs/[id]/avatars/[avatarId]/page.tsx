@@ -114,7 +114,10 @@ export default function AvatarDrilldownPage({ params }: PageProps) {
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <AvatarMoraleChart perRound={detail.rounds} />
+        <AvatarMoraleChart
+          perRound={detail.rounds}
+          hasMoraleTrack={focus.role_in_sim === 'worker'}
+        />
 
         {/* Right column reserved for per-avatar paper-sold chart or
             per-round summary. Left empty for now — the dashboard table
@@ -125,6 +128,7 @@ export default function AvatarDrilldownPage({ params }: PageProps) {
       <AvatarInteractionsList
         focusAvatar={focus}
         interactions={detail.interactions}
+        rounds={detail.rounds}
         roundFilter={roundFilter}
         partnerFilter={partnerFilter}
         onRoundFilterChange={(v) => setQuery('round', v === 'all' ? 'all' : String(v))}

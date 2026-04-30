@@ -146,8 +146,10 @@ export interface InteractionRowLike {
   responderMessage: string;
   initiatorMoraleDelta: number | null;
   initiatorMoraleRationale: string | null;
+  initiatorSelfPerception: string | null;
   responderMoraleDelta: number;
   responderMoraleRationale: string;
+  responderSelfPerception: string;
   createdAt: number;
 }
 
@@ -328,12 +330,14 @@ export function toRunDetail(args: {
 // ─── Response shaper — drilldown ────────────────────────────────────────────
 
 /**
- * Project the drilldown response. Critical privacy property: the subject
- * avatar's own self_perception comes through on `rounds[]` (from the
- * round_avatar table), but `interactions[]` strips out both sides'
- * self_perception entirely so we never accidentally expose another avatar's
- * inner monologue via the initiator/responder field of an interaction the
- * subject participated in.
+ * Project the drilldown response. Critical privacy property: only the SUBJECT
+ * avatar's self_perception is ever exposed. It flows through two places:
+ * - `rounds[]` carries the end-of-round value (from round_avatar).
+ * - `interactions[].subject_self_perception` carries the per-interaction
+ *   value the subject emitted on that turn (initiator-side if the subject
+ *   initiated, responder-side if they responded).
+ * The partner's self_perception is never included on either side, even
+ * though it lives on the same interaction row in the DB.
  */
 export function toAvatarDetail(args: {
   subject: AvatarRowLike;
@@ -367,6 +371,14 @@ export function toAvatarDetail(args: {
     (it) => {
       const init = avatarsById.get(it.initiatorAvatarId);
       const resp = avatarsById.get(it.responderAvatarId);
+      // Pick whichever side the subject sat on; the other side's
+      // self_perception stays in the DB and is never serialized.
+      const subjectSelfPerception =
+        it.initiatorAvatarId === subject.id
+          ? it.initiatorSelfPerception
+          : it.responderAvatarId === subject.id
+            ? it.responderSelfPerception
+            : null;
       return {
         id: it.id,
         round_index: it.roundIndex,
@@ -388,7 +400,7 @@ export function toAvatarDetail(args: {
         initiator_morale_rationale: it.initiatorMoraleRationale,
         responder_morale_delta: it.responderMoraleDelta,
         responder_morale_rationale: it.responderMoraleRationale,
-        // self_perception fields deliberately absent — see fn-level comment.
+        subject_self_perception: subjectSelfPerception,
         created_at: it.createdAt,
       };
     },
@@ -420,10 +432,10 @@ export function toAvatarDetail(args: {
 // ─── Response shaper — run-level interaction feed ───────────────────────────
 
 /**
- * Project the full interaction timeline for a run. Both sides' self_perception
- * are stripped via the `InteractionRowLike` interface, which omits those
- * fields — same structural privacy mechanism as `toAvatarDetail`. Caller is
- * responsible for sort order; this shaper does not re-sort.
+ * Project the full interaction timeline for a run. There is no subject on the
+ * run-level view, so `subject_self_perception` is always null — both sides'
+ * stored self_perception stays in the DB. Caller is responsible for sort
+ * order; this shaper does not re-sort.
  */
 export function toRunInteractionsFeed(args: {
   interactions: InteractionRowLike[];
@@ -455,6 +467,7 @@ export function toRunInteractionsFeed(args: {
         initiator_morale_rationale: it.initiatorMoraleRationale,
         responder_morale_delta: it.responderMoraleDelta,
         responder_morale_rationale: it.responderMoraleRationale,
+        subject_self_perception: null,
         created_at: it.createdAt,
       };
     }),

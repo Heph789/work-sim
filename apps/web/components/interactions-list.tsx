@@ -11,7 +11,7 @@
 
 'use client';
 
-import type { DrilldownInteraction } from '@work-sim/shared';
+import type { DrilldownInteraction, DrilldownRoundEntry } from '@work-sim/shared';
 import { SITUATION_TAGS } from '@work-sim/shared';
 import { InteractionBlock, type FocusAvatar } from './interaction-block';
 
@@ -20,6 +20,12 @@ export interface InteractionsListProps {
   interactions: DrilldownInteraction[];
   /** When set, each block is rendered in drilldown mode (direction badge, focused-side morale). */
   focusAvatar?: FocusAvatar;
+  /**
+   * Optional map from round_index → focused avatar's per-round entry. When
+   * provided, each round group header surfaces the subject's end-of-round
+   * morale + self_perception. Only meaningful in drilldown mode (focusAvatar set).
+   */
+  roundEntriesByIndex?: ReadonlyMap<number, DrilldownRoundEntry>;
   /** Override for the empty-state copy. Defaults to a generic message. */
   emptyMessage?: string;
 }
@@ -56,6 +62,7 @@ function groupByRound(interactions: DrilldownInteraction[]): RoundGroup[] {
 export function InteractionsList({
   interactions,
   focusAvatar,
+  roundEntriesByIndex,
   emptyMessage = 'No interactions yet.',
 }: InteractionsListProps) {
   if (interactions.length === 0) {
@@ -72,9 +79,10 @@ export function InteractionsList({
     <div className="space-y-6">
       {groups.map((group) => {
         const tagDesc = SITUATION_TAGS.find((t) => t.tag === group.situationTag)?.description;
+        const entry = roundEntriesByIndex?.get(group.roundIndex);
         return (
           <section key={group.roundIndex}>
-            <header className="flex items-center gap-2 mb-2 pb-1 border-b border-gray-200">
+            <header className="mb-2 pb-1 border-b border-gray-200 flex items-center gap-2">
               <h3 className="text-sm font-semibold text-gray-700">
                 Round {group.roundIndex}
               </h3>
@@ -84,6 +92,11 @@ export function InteractionsList({
               >
                 {group.situationTag}
               </span>
+              {entry?.morale !== null && entry?.morale !== undefined && (
+                <span className="text-xs text-gray-500">
+                  <span className="text-gray-400">end-of-round morale:</span> {entry.morale}
+                </span>
+              )}
             </header>
             <div className="ml-2">
               {group.items.map((it) => (

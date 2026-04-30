@@ -352,12 +352,18 @@ describe('runner integration (in-memory DB + stub LLM)', () => {
       expect(r.self_perception).not.toBeNull();
     }
     for (const it of drill.interactions) {
+      // The wire shape has only `subject_self_perception` — the symmetric
+      // initiator/responder self_perception fields stay in the DB.
       expect(
         'initiator_self_perception' in (it as Record<string, unknown>),
       ).toBe(false);
       expect(
         'responder_self_perception' in (it as Record<string, unknown>),
       ).toBe(false);
+      // Subject is workerIds[0], who is either initiator or responder on
+      // every interaction in their feed, and emits a self_perception every
+      // turn → the field must be non-null.
+      expect(it.subject_self_perception).not.toBeNull();
     }
 
     // LLM call count per round (N=K=3):

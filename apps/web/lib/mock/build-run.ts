@@ -15,7 +15,8 @@ import type {
   RunStatus,
   SignedDelta,
 } from '@work-sim/shared';
-import { fabricateRound, STARTING_MORALE } from './fabricate.js';
+import { STARTING_MORALE } from '@work-sim/shared';
+import { fabricateRound } from './fabricate.js';
 import type { MockDrilldown, MockRun } from './types.js';
 
 let counter = 0;

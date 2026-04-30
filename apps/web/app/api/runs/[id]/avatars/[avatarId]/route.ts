@@ -41,17 +41,29 @@ export async function GET(req: Request, ctx: RouteContext): Promise<Response> {
     return Response.json({ error: 'avatar not in run' }, { status: 404, headers });
   }
 
-  // Filter interactions to those involving the subject (and optionally a
-  // specific partner, in either direction).
-  const interactions: DrilldownInteraction[] = run._drilldown.interactions.filter((it) => {
-    const involvesSubject = it.initiator.id === avatarId || it.responder.id === avatarId;
-    if (!involvesSubject) return false;
-    if (partnerId) {
-      const partnerSide = it.initiator.id === avatarId ? it.responder.id : it.initiator.id;
-      if (partnerSide !== partnerId) return false;
-    }
-    return true;
-  });
+  // Filter to interactions involving the subject (optionally restricted to
+  // one partner) and project to the wire shape: subject_self_perception is
+  // the focused side's stored self_perception; the partner's stays internal.
+  const interactions: DrilldownInteraction[] = run._drilldown.interactions
+    .filter((it) => {
+      const involvesSubject = it.initiator.id === avatarId || it.responder.id === avatarId;
+      if (!involvesSubject) return false;
+      if (partnerId) {
+        const partnerSide = it.initiator.id === avatarId ? it.responder.id : it.initiator.id;
+        if (partnerSide !== partnerId) return false;
+      }
+      return true;
+    })
+    .map((it) => {
+      const { initiator_self_perception, responder_self_perception, ...wire } = it;
+      const subject_self_perception =
+        it.initiator.id === avatarId
+          ? initiator_self_perception
+          : it.responder.id === avatarId
+            ? responder_self_perception
+            : null;
+      return { ...wire, subject_self_perception };
+    });
 
   let partner: AvatarDetail['partner'] = null;
   if (partnerId) {
