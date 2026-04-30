@@ -1,5 +1,31 @@
 # work-sim
 
+A workplace simulation engine that uses AI to model manager-worker dynamics. Run simulations where a manager and workers interact over multiple rounds, with their morale and productivity shaped by conversational outcomes.
+
+## How It Works
+
+A **run** involves one manager and one or more workers (called "avatars") simulating a multi-round workplace scenario.
+
+### The Loop
+
+Each round:
+1. A **situation tag** (e.g. "deadline pressure", "team conflict") is assigned
+2. The **manager and workers interact** via LLM-generated dialogue — the manager may give feedback, set expectations, or resolve conflicts; workers respond and reflect on the exchange
+3. Each worker's **morale is updated** based on the interactions (manager conversations have 2× weight)
+4. Each worker's **output (paper sold) is calculated**: `baseline_output × morale / 50`
+   - `morale=50` → output = baseline (neutral)
+   - `morale=100` → output = 2× baseline (energized)
+   - `morale=0` → no output (disengaged)
+5. The round concludes with team-level stats recorded
+
+### Information Asymmetry
+
+The **manager never sees** worker morale, baseline output, or worker rationales — only team pace vs. the target goal and per-worker paper sold. This enforces realistic decision-making: the manager must infer morale from behavior and dialogue.
+
+### Configuration
+
+Define avatars with personality, values, and baseline output; set a target paper goal, number of rounds, and LLM model. The API generates deterministic experiment runs and exposes per-round and per-avatar analytics.
+
 ## Prerequisites
 
 - Node.js ≥ 20
@@ -26,12 +52,23 @@ The schema push creates `apps/api/work-sim.db`. To reset state at any time, dele
 
 ## Run
 
+Start the backend API server:
+
 ```bash
-# Start the API in watch mode (defaults to http://localhost:4000)
-pnpm dev
+pnpm --dir apps/api dev
+# API runs at http://localhost:4000
 ```
 
-Sanity check:
+In a new terminal, start the frontend web server:
+
+```bash
+pnpm --dir apps/web dev
+# Web app runs at http://localhost:3000
+```
+
+Then open http://localhost:3000 in your browser to access the dashboard.
+
+Sanity check (API):
 
 ```bash
 curl http://localhost:4000/healthz
