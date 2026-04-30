@@ -1,0 +1,5 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "//": "We don't use pnpm workspaces, so Vercel only installs apps/web by default and packages/shared is left without its node_modules. The Next build (via @work-sim/shared) imports zod from inside packages/shared, so that package needs its own deps installed too. Mirrors what apps/api/Dockerfile does for Railway.",
+  "installCommand": "pnpm install --frozen-lockfile && pnpm --dir ../../packages/shared install --frozen-lockfile"
+}
