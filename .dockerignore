@@ -1,0 +1,26 @@
+# The api Docker build context is the repo root. Keep it lean.
+
+**/node_modules
+**/dist
+**/.next
+**/*.tsbuildinfo
+
+# Ephemeral SQLite files — never ship the local dev DB into the image.
+**/*.db
+**/*.db-shm
+**/*.db-wal
+
+# Secrets
+**/.env
+**/.env.local
+
+# Editor / VCS
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
+
+# Not needed by the api image
+apps/web
+docs

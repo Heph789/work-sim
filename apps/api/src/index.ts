@@ -22,7 +22,12 @@ import { avatarsRoutes } from "./routes/avatars.js";
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger: true });
 
-  await app.register(cors, { origin: "http://localhost:3000" });
+  // WEB_ORIGIN can be a single origin or a comma-separated list. In prod
+  // this is the Vercel URL of the web app; locally it defaults to :3000.
+  const corsOrigin = process.env.WEB_ORIGIN
+    ? process.env.WEB_ORIGIN.split(",").map((s) => s.trim())
+    : "http://localhost:3000";
+  await app.register(cors, { origin: corsOrigin });
 
   const db = createAppDb(process.env.DATABASE_URL);
   const llm = createLLMClient();
