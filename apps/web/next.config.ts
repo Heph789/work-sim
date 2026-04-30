@@ -30,6 +30,11 @@ const config: NextConfig = {
       ...(cfg.resolve.extensionAlias ?? {}),
       '.js': ['.ts', '.tsx', '.js', '.jsx'],
     };
+    // Preserve symlinks so module resolution from inside packages/shared
+    // walks up apps/web/node_modules (where zod lives) instead of into
+    // packages/shared/node_modules (which is empty on Vercel — Vercel only
+    // installs apps/web; we don't have pnpm workspaces).
+    cfg.resolve.symlinks = false;
     return cfg;
   },
 };
